@@ -1,5 +1,27 @@
 # 三种 A 股选股策略与独立资金账
 
+下一代研究执行器、组合风险引擎、可执行随机基线和 VCP 的实现规范见 [A 股选股研究与组合风险引擎 v2 Spec](../docs/specs/selection_research_engine_v2.md)，实施步骤与逐阶段审查见 [v2 开发计划](../docs/plans/selection_research_engine_v2_development_plan.md)。M0–M7 功能开发和分步自测已经完成；正式五年实验仍需单独运行，本文件后半部分继续保留 v1 基线说明。
+
+## v2 运行入口
+
+冻结与覆盖审计：
+
+```bash
+.venv/bin/python scripts/freeze_selection_snapshot.py --help
+.venv/bin/python scripts/audit_selection_coverage.py --help
+```
+
+旧策略 A1/A2/B1/B2、VCP C/D/E/F、可执行 placebo 和统计门禁：
+
+```bash
+.venv/bin/python scripts/backtest_selection_v2.py --help
+.venv/bin/python scripts/backtest_vcp_v2.py --help
+.venv/bin/python scripts/run_placebo_v2.py --help
+.venv/bin/python scripts/run_selection_stress.py --help
+```
+
+正式 VCP 研究应给 `backtest_vcp_v2.py` 加 `--continuous`，生成跨年度不重置的净值路径。placebo 必须选择与原实验一致的 `--approval-mode`；事件退出实验还要增加 `--event-exit`。正式压力报告保留默认每种 5,000 条路径。
+
 实现：[ABuSelectionStrategies.py](/Users/wjy/Documents/code/abu/abupy/AlphaBu/ABuSelectionStrategies.py)。先建立免费研究数据集：
 
 ```bash

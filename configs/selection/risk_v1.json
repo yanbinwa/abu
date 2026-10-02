@@ -1,0 +1,17 @@
+{
+  "risk_version": "risk_v1",
+  "single_trade_risk_fraction": 0.0025,
+  "portfolio_open_risk_fraction": 0.0200,
+  "industry_open_risk_fraction": 0.0060,
+  "same_day_new_risk_fraction": 0.0075,
+  "max_symbol_weight": 0.08,
+  "max_gross_exposure": 0.80,
+  "max_amount_participation": 0.05,
+  "max_stress_loss_fraction": 0.06,
+  "missing_beta": 1.50,
+  "beta_clip": [0.50, 2.00],
+  "unknown_industry_bucket": "UNKNOWN",
+  "unknown_st_policy": "exclude",
+  "unknown_limit_fraction": 0.05,
+  "buy_order_valid_sessions": 1
+}

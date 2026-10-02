@@ -1,0 +1,11 @@
+{
+  "strategy_version": "vcp_attention_v1",
+  "amount_dry_max": 0.70,
+  "turnover_dry_max": 0.80,
+  "amplitude_dry_max": 0.75,
+  "amount_expansion_min": 1.50,
+  "turnover_expansion_min": 1.25,
+  "amplitude_expansion_min": 1.20,
+  "breadth_ma120_min": 0.55,
+  "minimum_field_coverage": 0.90
+}

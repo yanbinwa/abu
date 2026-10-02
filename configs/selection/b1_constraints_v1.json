@@ -1,0 +1,10 @@
+{
+  "constraint_version": "b1_constraints_v1",
+  "max_symbol_weight": 0.08,
+  "max_gross_exposure": 0.80,
+  "max_industry_weight": 0.25,
+  "max_same_day_notional_fraction": 0.20,
+  "max_amount_participation": 0.05,
+  "max_stress_loss_fraction": 0.06,
+  "missing_beta": 1.50
+}

@@ -1,0 +1,10 @@
+{
+  "initial_cash": 1000000.0,
+  "broker_rate": 0.00025,
+  "min_commission": 5.0,
+  "transfer_rate": 0.00001,
+  "sell_stamp_rate": 0.0005,
+  "slippage_bps": 25.0,
+  "mode": "pit_corrected",
+  "max_positions": null
+}

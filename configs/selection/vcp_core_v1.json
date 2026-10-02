@@ -1,0 +1,14 @@
+{
+  "strategy_version": "vcp_core_v1",
+  "min_history": 252,
+  "contraction_sessions": 20,
+  "control_sessions": 60,
+  "contraction_ratio_max": 0.65,
+  "atr_quantile": 0.30,
+  "slope_sessions": 20,
+  "structure_sessions": 20,
+  "atr_stop_multiple": 2.0,
+  "max_planned_risk_fraction": 0.08,
+  "max_gap_atr": 1.0,
+  "fixed_hold_sessions": 20
+}
