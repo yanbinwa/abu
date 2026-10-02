@@ -1,2 +1,18 @@
-scipy
-IPython
+# Research environment: Python 3.11. Versions are pinned for this legacy codebase.
+numpy==1.23.5
+pandas==1.5.3
+scipy==1.10.1
+scikit-learn==1.2.2
+matplotlib==3.7.5
+seaborn==0.12.2
+statsmodels==0.14.4
+requests==2.32.5
+Pillow==10.4.0
+bokeh==2.4.3
+tables==3.10.2
+psutil==7.1.0
+toolz==0.12.1
+IPython==8.18.1
+ipywidgets==7.8.5
+notebook==6.5.7
+ipykernel==6.29.5

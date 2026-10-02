@@ -9,7 +9,7 @@ from __future__ import print_function
 import itertools
 import logging
 import math
-from collections import Iterable
+from collections.abc import Iterable
 from enum import Enum
 
 import numpy as np
