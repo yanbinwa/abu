@@ -1,0 +1,12 @@
+{
+  "name": "abu-wecom-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bot.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@wecom/aibot-node-sdk": "1.0.7"
+  }
+}

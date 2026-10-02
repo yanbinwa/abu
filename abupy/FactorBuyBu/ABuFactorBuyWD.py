@@ -63,8 +63,12 @@ class AbuFactorBuyWD(AbuFactorBuyTD, BuyCallMixin):
         from ..UtilBu import ABuKLUtil
 
         self.buy_date_week = []
+        if last_kl.empty:
+            return
         # 计算周期内，周期的胜率
         last_dw = ABuKLUtil.date_week_win(last_kl)
+        if last_dw.empty or 'win' not in last_dw:
+            return
         # 摘取大于阀值self.buy_dw的'周几'，buy_dw默认0.55
         last_dw_vd = last_dw[last_dw.win >= self.buy_dw]
         """

@@ -159,6 +159,9 @@ def _all_cn_symbol(index=False):
     # noinspection PyProtectedMember
     if ABuEnv._g_enable_example_env_ipython:
         return K_SAND_BOX_CN
+    private_source = ABuEnv.g_private_data_source
+    if private_source is not None and hasattr(private_source, 'all_symbols'):
+        return private_source.all_symbols(index=index)
     return AbuSymbolCN().all_symbol(index=index)
 
 

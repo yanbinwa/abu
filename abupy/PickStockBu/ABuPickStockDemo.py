@@ -34,6 +34,8 @@ class AbuPickStockShiftDistance(AbuPickStockBase):
         pick_line = AbuTLine(kl_pd.close, 'shift distance')
         shift_distance = pick_line.show_shift_distance(step_x=1.2, show_log=False, show=False)
         shift_distance = np.array(shift_distance)
+        if shift_distance.ndim != 2 or shift_distance.shape[1] == 0:
+            return False
         # show_shift_distance返回的参数为四组数据，最后一组是每个时间段的位移路程比值
         sd_arr = shift_distance[:, -1]
         # 大于阀值的进行累加和计算

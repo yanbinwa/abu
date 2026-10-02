@@ -54,6 +54,35 @@ Symbol
 4. 验证日期顺序、重复值、缺失值、复权口径和基准对齐。
 5. 分别验证强制网络、强制本地和普通模式。
 
+## AKShare A 股日线
+
+`ABuDataFeedAkShare.AKShareCNApi` 提供沪深 A 股和四个内置基准指数的日线适配。默认使用前复权数据，结果仍由 `ABuDataCache` 保存到 `~/abu/data/csv`。适配器按东方财富、腾讯、新浪的顺序回退，特殊 CDR 使用 AKShare 专用接口，并统一将成交量保存为“股”。
+
+注册 AKShare 后，`ABuMarket.all_symbol()` 和 `abu.run_kl_update()` 会使用 AKShare 缓存的动态沪深股票池，不再使用仓库内的旧静态 A 股列表。
+
+代码中注册数据源：
+
+```python
+from abupy.MarketBu import use_akshare
+
+use_akshare(adjust='qfq')
+```
+
+下载近一年沪深全市场数据：
+
+```bash
+.venv/bin/python scripts/download_akshare_cn.py
+```
+
+下载少量标的进行验证：
+
+```bash
+.venv/bin/python scripts/download_akshare_cn.py \
+  --symbols sh600000,sz000001 --no-index --start 2024-01-01 --end 2024-12-31
+```
+
+脚本默认复用满足日期范围的本地缓存；使用 `--refresh` 可以强制重新请求。交易所股票池缓存在 `~/abu/data/cache/akshare_cn_stock_info.csv`，需要更新时使用 `--refresh-universe`。每轮完成后，下载口径和结果会写入 `~/abu/data/cache/akshare_download_manifest.json`。默认使用 4 个独立进程，隔离 AKShare 的复权运行时；`--executor thread` 只适合当前网络能够稳定访问东方财富接口、不需要新浪回退的环境。当前 ABU 市场枚举不包含北交所，因此股票池只包含上交所主板、科创板以及深交所 A 股。
+
 内置在线数据源主要用于示例，服务可用性和字段稳定性没有保证。业务开发应优先接入有契约的数据服务。
 
 ## 相关模块

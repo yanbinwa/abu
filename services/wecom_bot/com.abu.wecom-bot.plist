@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.abu.wecom-bot</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/wjy/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node</string>
+    <string>/Users/wjy/Library/Application Support/abu-wecom-bot/services/wecom_bot/bot.mjs</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/wjy/Library/Application Support/abu-wecom-bot</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/wjy/Library/Application Support/abu-wecom-bot/runtime/wecom/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/wjy/Library/Application Support/abu-wecom-bot/runtime/wecom/stderr.log</string>
+</dict>
+</plist>
