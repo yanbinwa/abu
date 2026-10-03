@@ -238,7 +238,7 @@ class MatchedPlaceboV2(object):
                         reason = ("FIXED_HOLD" if day-item["entry_day"]+1 >= hold
                                   else None)
                     else:
-                        reason = exit_policy.signal(day, symbol, fixed_hold=False)
+                        reason = exit_policy.signal(day, symbol)
                     if reason:
                         pending_exits.append({**item, "reason": reason})
             if day >= len(self.panel.dates) - 1:

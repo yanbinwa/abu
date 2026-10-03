@@ -1,0 +1,9 @@
+{
+  "strategy_version": "vcp_residual_v2",
+  "beta_lookback_sessions": 251,
+  "skip_recent_sessions": 20,
+  "formation_sessions": 105,
+  "minimum_beta_observations": 200,
+  "minimum_formation_observations": 95,
+  "require_positive_residual": true
+}

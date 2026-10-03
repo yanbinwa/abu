@@ -30,7 +30,8 @@ from abupy.AlphaBu.ABuSelectionStrategiesV2 import (  # noqa: E402
 )
 from abupy.AlphaBu.ABuTradeIntent import TradeIntent  # noqa: E402
 from abupy.AlphaBu.ABuVCPStrategy import (  # noqa: E402
-    VCPExitEngine, VCPStrategy, load_vcp_attention_config, load_vcp_core_config,
+    VCP_EXIT_PROFILES, VCPStrategy, load_vcp_attention_config,
+    load_vcp_core_config, load_vcp_residual_config, make_vcp_exit_engine,
 )
 
 
@@ -91,11 +92,17 @@ def main():
     parser.add_argument("--approval-mode", choices=("fixed", "b1", "full"),
                         default="full")
     parser.add_argument("--event-exit", action="store_true",
-                        help="use VCP event exits instead of metadata hold_sessions")
+                        help="deprecated alias for --exit-profile full_event_v1")
+    parser.add_argument("--exit-profile", choices=VCP_EXIT_PROFILES,
+                        help="VCP exit profile; defaults to fixed20")
     parser.add_argument("--fresh", action="store_true")
     args = parser.parse_args()
     if args.replicates <= 0:
         raise ValueError("replicates must be positive")
+    if args.event_exit and args.exit_profile not in (None, "full_event_v1"):
+        raise ValueError("--event-exit conflicts with --exit-profile")
+    exit_profile = ("full_event_v1" if args.event_exit else
+                    args.exit_profile or "fixed20")
     replicate_end = (args.replicates if args.replicate_end is None
                      else args.replicate_end)
     if args.replicate_start < 0 or replicate_end <= args.replicate_start:
@@ -130,10 +137,13 @@ def main():
         core = load_vcp_core_config(ROOT / "configs/selection/vcp_core_v1.json")
         attention = load_vcp_attention_config(
             ROOT / "configs/selection/vcp_attention_v1.json")
-        vcp = VCPStrategy(panel, core, attention)
+        residual = load_vcp_residual_config(
+            ROOT / "configs/selection/vcp_residual_v2.json")
+        vcp = VCPStrategy(panel, core, attention, residual)
         rebuild = vcp.rebuild_placebo_intent
-        exit_factory = (lambda current_panel: VCPExitEngine(current_panel)
-                        if args.event_exit else None)
+        exit_factory = (None if exit_profile == "fixed20" else
+                        lambda current_panel: make_vcp_exit_engine(
+                            current_panel, exit_profile))
     else:
         rebuild = rebuild_legacy_placebo_intent
         exit_factory = None
@@ -179,7 +189,8 @@ def main():
         "slippage_bps": args.slippage_bps,
         "max_positions": args.max_positions,
         "approval_mode": args.approval_mode,
-        "event_exit": args.event_exit,
+        "event_exit": exit_profile == "full_event_v1",
+        "exit_profile": exit_profile,
         "intent_count": len(intents),
         "replicate_range": [args.replicate_start, replicate_end],
         "missing_field_counts": dict(sorted(missing.items())),

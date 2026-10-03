@@ -18,7 +18,7 @@ from abupy.AlphaBu.ABuPortfolioRisk import load_risk_config  # noqa: E402
 from abupy.AlphaBu.ABuSelectionPanelV2 import SelectionPanelV2  # noqa: E402
 from abupy.AlphaBu.ABuVCPStrategy import (  # noqa: E402
     VCP_EXPERIMENTS, load_vcp_attention_config, load_vcp_core_config,
-    run_vcp_backtest,
+    load_vcp_residual_config, run_vcp_backtest,
 )
 
 
@@ -44,6 +44,8 @@ def main():
     core = load_vcp_core_config(ROOT / "configs/selection/vcp_core_v1.json")
     attention = load_vcp_attention_config(
         ROOT / "configs/selection/vcp_attention_v1.json")
+    residual = load_vcp_residual_config(
+        ROOT / "configs/selection/vcp_residual_v2.json")
     risk = load_risk_config(ROOT / "configs/selection/risk_v1.json")
     panel = SelectionPanelV2.from_research_data(
         args.signal_dir, args.research_dir,
@@ -56,7 +58,7 @@ def main():
             for experiment in args.experiments:
                 result, curve, fills, decisions, exits = run_vcp_backtest(
                     panel, year, experiment, args.slippage_bps,
-                    core, attention, risk)
+                    core, attention, risk, residual)
                 rows.append(result)
                 directory = args.output_dir / "{}_{}".format(experiment, year)
                 directory.mkdir(parents=True, exist_ok=True)
@@ -73,6 +75,7 @@ def main():
             audit = {}
             result, curve, fills, decisions, exits = run_vcp_backtest(
                 panel, None, experiment, args.slippage_bps, core, attention, risk,
+                residual,
                 start_date=min(args.years) * 10000 + 101,
                 end_date=max(args.years) * 10000 + 1231,
                 audit=audit,
@@ -107,6 +110,8 @@ def main():
         "core_config": asdict(core), "core_config_sha256": core.sha256,
         "attention_config": asdict(attention),
         "attention_config_sha256": attention.sha256,
+        "residual_config": asdict(residual),
+        "residual_config_sha256": residual.sha256,
         "risk_config_sha256": risk.sha256,
         "warning": "research output; completion does not imply live admission",
     }

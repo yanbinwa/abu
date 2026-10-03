@@ -56,6 +56,23 @@ class VCPAttentionConfig:
         ).encode()).hexdigest()
 
 
+@dataclass(frozen=True)
+class VCPResidualConfig:
+    strategy_version: str = "vcp_residual_v2"
+    beta_lookback_sessions: int = 251
+    skip_recent_sessions: int = 20
+    formation_sessions: int = 105
+    minimum_beta_observations: int = 200
+    minimum_formation_observations: int = 95
+    require_positive_residual: bool = True
+
+    @property
+    def sha256(self):
+        return hashlib.sha256(json.dumps(
+            asdict(self), sort_keys=True, separators=(",", ":")
+        ).encode()).hexdigest()
+
+
 def _load_config(path, cls):
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     expected = {item.name for item in fields(cls)}
@@ -70,6 +87,10 @@ def load_vcp_core_config(path):
 
 def load_vcp_attention_config(path):
     return _load_config(path, VCPAttentionConfig)
+
+
+def load_vcp_residual_config(path):
+    return _load_config(path, VCPResidualConfig)
 
 
 def _rank(values, columns):
@@ -97,12 +118,14 @@ def _median_ratio(short, long, minimum_coverage):
 
 
 class VCPStrategy(object):
-    VARIANTS = ("core", "core_common", "amount_common", "attention_common")
+    VARIANTS = ("core", "core_common", "amount_common", "attention_common",
+                "residual_core")
 
-    def __init__(self, panel, core=None, attention=None):
+    def __init__(self, panel, core=None, attention=None, residual=None):
         self.panel = panel
         self.core = core or VCPCoreConfig()
         self.attention = attention or VCPAttentionConfig()
+        self.residual = residual or VCPResidualConfig()
         self._breadth_denominator = None
 
     def _base_components(self, day):
@@ -201,12 +224,60 @@ class VCPStrategy(object):
         result["breadth_ma120"] = breadth
         return result
 
+    def _residual_components(self, day):
+        """Existing six-to-one-month residual momentum, evaluated at day close."""
+        cfg = self.residual
+        regression_start = day - cfg.beta_lookback_sessions
+        regression_end = day - cfg.skip_recent_sessions
+        formation_start = regression_end - cfg.formation_sessions
+        regression = self.panel.returns[
+            regression_start:regression_end].astype(np.float64)
+        market = self.panel.benchmark_returns[
+            regression_start:regression_end].astype(np.float64)
+        valid = np.isfinite(regression) & np.isfinite(market[:, None])
+        count = valid.sum(axis=0)
+        market_matrix = market[:, None]
+        market_mean = np.divide(
+            np.where(valid, market_matrix, 0).sum(axis=0), count,
+            out=np.zeros(len(count), dtype=float), where=count > 0,
+        )
+        stock_mean = np.divide(
+            np.where(valid, regression, 0).sum(axis=0), count,
+            out=np.zeros(len(count), dtype=float), where=count > 0,
+        )
+        market_centered = market_matrix - market_mean
+        stock_centered = regression - stock_mean
+        numerator = np.where(
+            valid, market_centered * stock_centered, 0).sum(axis=0)
+        denominator = np.where(
+            valid, market_centered ** 2, 0).sum(axis=0)
+        beta = np.divide(
+            numerator, denominator, out=np.full(len(count), np.nan),
+            where=denominator > 0,
+        )
+        formation = self.panel.returns[
+            formation_start:regression_end].astype(np.float64)
+        formation_market = self.panel.benchmark_returns[
+            formation_start:regression_end, None].astype(np.float64)
+        formation_valid = np.isfinite(formation) & np.isfinite(formation_market)
+        residual = formation - beta[None, :] * formation_market
+        score = np.nansum(residual, axis=0)
+        usable = ((count >= cfg.minimum_beta_observations) &
+                  (formation_valid.sum(axis=0) >=
+                   cfg.minimum_formation_observations) &
+                  np.isfinite(beta) & np.isfinite(score))
+        if cfg.require_positive_residual:
+            usable &= score > 0
+        return score, usable
+
     def generate_intents(self, day, variant="core"):
         if variant not in self.VARIANTS:
             raise ValueError("unknown VCP variant")
         eligible, data = self._base_components(day)
         attention = None
-        if variant != "core":
+        residual = None
+        attention_variants = ("core_common", "amount_common", "attention_common")
+        if variant in attention_variants:
             attention = self._attention_components(day)
             common = (attention["amount_dry_valid"] &
                       attention["turnover_dry_valid"] &
@@ -215,6 +286,9 @@ class VCPStrategy(object):
                       attention["turnover_expansion_valid"] &
                       attention["amplitude_expansion_valid"])
             eligible &= common
+        if variant == "residual_core":
+            residual, residual_valid = self._residual_components(day)
+            eligible &= residual_valid
         if variant in ("amount_common", "attention_common"):
             eligible &= attention["amount_dry"] <= self.attention.amount_dry_max
             eligible &= (attention["amount_expansion"] >=
@@ -236,6 +310,12 @@ class VCPStrategy(object):
                      0.20 * _rank(attention["amplitude_expansion"][columns], columns) +
                      0.15 * _rank(data["breakout_strength"][columns], columns))
             version = self.attention.strategy_version
+        elif variant == "residual_core":
+            score = (0.25 * _rank(residual[columns], columns) +
+                     0.25 * _rank(data["slopes"][columns], columns) +
+                     0.25 * _rank(data["tightness"][columns], columns) +
+                     0.25 * _rank(data["breakout_strength"][columns], columns))
+            version = self.residual.strategy_version
         else:
             score = (0.60 * _rank(data["breakout_strength"][columns], columns) +
                      0.40 * _rank(data["tightness"][columns], columns))
@@ -288,6 +368,8 @@ class VCPStrategy(object):
                     "variant": variant,
                     "hold_sessions": self.core.fixed_hold_sessions,
                     "stop_fraction": 1 - stop_adjusted / adjusted,
+                    **({"residual_momentum": float(residual[column])}
+                       if residual is not None else {}),
                 },
             ))
         return sorted(intents, key=lambda item: (-item.score, item.symbol))
@@ -350,8 +432,16 @@ class VCPExitEngine(object):
     PRIORITY = ("INITIAL_STOP", "BREAKOUT_FAILURE", "TRAILING_STOP",
                 "MARKET_REGIME", "STAGNATION", "FIXED_HOLD")
 
-    def __init__(self, panel):
+    EVENT_REASONS = frozenset(PRIORITY[:-1])
+
+    def __init__(self, panel, enabled_reasons=None, fixed_hold=False):
         self.panel = panel
+        self.enabled_reasons = (self.EVENT_REASONS if enabled_reasons is None
+                                else frozenset(enabled_reasons))
+        unknown = self.enabled_reasons - self.EVENT_REASONS
+        if unknown:
+            raise ValueError("unknown exit reasons: {}".format(sorted(unknown)))
+        self.fixed_hold = bool(fixed_hold)
         self.states = {}
 
     def register_entry(self, intent, fill, day):
@@ -366,7 +456,7 @@ class VCPExitEngine(object):
             current_stop_adjusted=float(intent.initial_stop_adjusted),
         )
 
-    def signal(self, day, symbol, fixed_hold=False):
+    def signal(self, day, symbol, fixed_hold=None):
         state = self.states[symbol]
         column = self.panel.symbol_index[symbol]
         close = float(self.panel.close[day, column])
@@ -381,16 +471,22 @@ class VCPExitEngine(object):
             state.current_stop_adjusted = max(state.current_stop_adjusted, trailing)
         held = day - state.entry_day + 1
         triggered = []
-        if close <= state.initial_stop_adjusted:
+        if "INITIAL_STOP" in self.enabled_reasons and \
+                close <= state.initial_stop_adjusted:
             triggered.append("INITIAL_STOP")
-        if held <= 5 and close <= state.breakout_level:
+        if "BREAKOUT_FAILURE" in self.enabled_reasons and \
+                held <= 5 and close <= state.breakout_level:
             triggered.append("BREAKOUT_FAILURE")
-        if state.trailing_enabled and close <= state.current_stop_adjusted:
+        if "TRAILING_STOP" in self.enabled_reasons and \
+                state.trailing_enabled and close <= state.current_stop_adjusted:
             triggered.append("TRAILING_STOP")
-        if self.panel.benchmark_close[day] < self.panel.market_ma200[day]:
+        if "MARKET_REGIME" in self.enabled_reasons and \
+                self.panel.benchmark_close[day] < self.panel.market_ma200[day]:
             triggered.append("MARKET_REGIME")
-        if held >= 20 and mfe < 0.5 * state.initial_r_adjusted:
+        if "STAGNATION" in self.enabled_reasons and \
+                held >= 20 and mfe < 0.5 * state.initial_r_adjusted:
             triggered.append("STAGNATION")
+        fixed_hold = self.fixed_hold if fixed_hold is None else bool(fixed_hold)
         if fixed_hold and held >= 20:
             triggered.append("FIXED_HOLD")
         return next((reason for reason in self.PRIORITY if reason in triggered), None)
@@ -399,24 +495,54 @@ class VCPExitEngine(object):
         self.states.pop(symbol, None)
 
 
+VCP_EXIT_PROFILES = {
+    "fixed20": ((), True),
+    "full_event_v1": (VCPExitEngine.EVENT_REASONS, False),
+    "stop_fixed20_v2": (("INITIAL_STOP",), True),
+    "stop_breakout_fixed20_v2": (("INITIAL_STOP", "BREAKOUT_FAILURE"), True),
+    "stop_trailing_fixed20_v2": (("INITIAL_STOP", "TRAILING_STOP"), True),
+    "stop_market_fixed20_v2": (("INITIAL_STOP", "MARKET_REGIME"), True),
+    "stop_trailing_stagnation_v2": (
+        ("INITIAL_STOP", "TRAILING_STOP", "STAGNATION"), False),
+}
+
+
+def make_vcp_exit_engine(panel, profile):
+    if profile not in VCP_EXIT_PROFILES:
+        raise ValueError("unknown VCP exit profile")
+    enabled, fixed_hold = VCP_EXIT_PROFILES[profile]
+    return VCPExitEngine(panel, enabled_reasons=enabled, fixed_hold=fixed_hold)
+
+
 VCP_EXPERIMENTS = {
-    "c_core_fixed20": ("core", False, False),
-    "d_core_r_fixed20": ("core", True, False),
-    "e_core_r_event": ("core", True, True),
-    "f_core_common_r_event": ("core_common", True, True),
-    "f_amount_common_r_event": ("amount_common", True, True),
-    "f_attention_common_r_event": ("attention_common", True, True),
+    "c_core_fixed20": ("core", False, "fixed20"),
+    "d_core_r_fixed20": ("core", True, "fixed20"),
+    "e_core_r_event": ("core", True, "full_event_v1"),
+    "f_core_common_r_event": ("core_common", True, "full_event_v1"),
+    "f_amount_common_r_event": ("amount_common", True, "full_event_v1"),
+    "f_attention_common_r_event": ("attention_common", True, "full_event_v1"),
+    "g_stop_fixed20": ("core", True, "stop_fixed20_v2"),
+    "g_stop_breakout_fixed20": ("core", True, "stop_breakout_fixed20_v2"),
+    "g_stop_trailing_fixed20": ("core", True, "stop_trailing_fixed20_v2"),
+    "g_stop_market_fixed20": ("core", True, "stop_market_fixed20_v2"),
+    "g_stop_trailing_stagnation": (
+        "core", True, "stop_trailing_stagnation_v2"),
+    "h_residual_stop_fixed20": (
+        "residual_core", True, "stop_fixed20_v2"),
+    "h_residual_stop_trailing_stagnation": (
+        "residual_core", True, "stop_trailing_stagnation_v2"),
 }
 
 
 def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                      slippage_bps=25.0, core_config=None,
                      attention_config=None, risk_config=None,
+                     residual_config=None,
                      start_date=None, end_date=None, audit=None):
     """Run a C/D/E/F VCP experiment through the common executor."""
     if experiment not in VCP_EXPERIMENTS:
         raise ValueError("unknown VCP experiment")
-    variant, use_risk, event_exit = VCP_EXPERIMENTS[experiment]
+    variant, use_risk, exit_profile = VCP_EXPERIMENTS[experiment]
     if start_date is not None or end_date is not None:
         if start_date is None or end_date is None:
             raise ValueError("start_date and end_date must be provided together")
@@ -438,9 +564,9 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                                     (previous[:, column] > 0)]
         if len(valid):
             executor.last_close[column] = valid[-1]
-    strategy = VCPStrategy(panel, core_config, attention_config)
+    strategy = VCPStrategy(panel, core_config, attention_config, residual_config)
     risk = PortfolioRiskEngine(panel, risk_config or RiskConfig())
-    exits = VCPExitEngine(panel)
+    exits = make_vcp_exit_engine(panel, exit_profile)
     intent_lookup = {}
     entry_intent_by_symbol = {}
     decision_rows = []
@@ -515,11 +641,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                 state = exits.states.get(symbol)
                 if state is None:
                     continue
-                if event_exit:
-                    reason = exits.signal(day, symbol, fixed_hold=False)
-                else:
-                    held = day - state.entry_day + 1
-                    reason = "FIXED_HOLD" if held >= strategy.core.fixed_hold_sessions else None
+                reason = exits.signal(day, symbol)
                 if reason:
                     pending_exits.append((symbol, reason))
             pending_intents = strategy.generate_intents(day, variant)
@@ -533,8 +655,12 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
     cutoff = np.quantile(daily, 0.05) if len(daily) else np.nan
     result = {
         "strategy": (strategy.attention.strategy_version
-                     if variant == "attention_common" else strategy.core.strategy_version),
-        "variant": variant, "experiment": experiment, "period": period_label,
+                     if variant == "attention_common" else
+                     strategy.residual.strategy_version
+                     if variant == "residual_core" else
+                     strategy.core.strategy_version),
+        "variant": variant, "experiment": experiment,
+        "exit_profile": exit_profile, "period": period_label,
         "start": int(panel.dates[first]), "end": int(panel.dates[last]),
         "return_pct": (capital[-1] / initial - 1) * 100,
         "max_drawdown_pct": (capital / np.maximum.accumulate(capital) - 1).min() * 100,
@@ -550,6 +676,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
         "risk_reduced": sum(item.decision == "reduced" for item in decision_rows),
         "core_config_sha256": strategy.core.sha256,
         "attention_config_sha256": strategy.attention.sha256,
+        "residual_config_sha256": strategy.residual.sha256,
         "risk_config_sha256": risk.config.sha256,
     }
     if audit is not None:

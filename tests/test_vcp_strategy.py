@@ -10,7 +10,7 @@ from abupy.AlphaBu.ABuSelectionPanelV2 import SelectionPanelV2
 from abupy.AlphaBu.ABuSelectionStrategies import SelectionPanel
 from abupy.AlphaBu.ABuTradeIntent import TradeIntent
 from abupy.AlphaBu.ABuVCPStrategy import (
-    VCPExitEngine, VCPStrategy, run_vcp_backtest,
+    VCPExitEngine, VCPStrategy, make_vcp_exit_engine, run_vcp_backtest,
 )
 
 
@@ -99,6 +99,17 @@ class VCPStrategyTest(unittest.TestCase):
         # Structure low 9.6 and max price 12.1 imply risk > 8% of 10.5.
         self.assertEqual(VCPStrategy(panel).generate_intents(day, "core"), [])
 
+    def test_residual_variant_requires_positive_past_residual(self):
+        panel, day = make_vcp_panel()
+        start, end = day - 251, day - 20
+        panel.returns[start:end] = 0.0
+        panel.returns[day-125:end, 0] = 0.01
+        panel.returns[day-125:end, 1] = -0.01
+        intents = VCPStrategy(panel).generate_intents(day, "residual_core")
+        self.assertEqual([item.symbol for item in intents], ["sz000001"])
+        self.assertEqual(intents[0].strategy_id, "vcp_residual_v2")
+        self.assertGreater(intents[0].metadata["residual_momentum"], 0)
+
     def test_exit_priority_and_trailing_stop_only_move_up(self):
         panel, day = make_vcp_panel()
         intent = TradeIntent(
@@ -123,6 +134,25 @@ class VCPStrategyTest(unittest.TestCase):
         engine.signal(day+2, "sz000001")
         self.assertGreaterEqual(engine.states["sz000001"].current_stop_adjusted,
                                 raised)
+
+    def test_exit_profiles_execute_initial_stop_and_isolate_rules(self):
+        panel, day = make_vcp_panel()
+        intent = TradeIntent(
+            intent_id="vcp", strategy_id="vcp_core_v1", strategy_version="1",
+            signal_asof=int(panel.dates[day]), symbol="sz000001",
+            signal_price_adjusted=10.5, signal_price_raw=10.5,
+            adjustment_factor_signal=1.0, initial_stop_adjusted=10.0,
+            initial_stop_raw=10.0, metadata={"breakout_level": 10.2},
+        )
+        stop = make_vcp_exit_engine(panel, "stop_fixed20_v2")
+        stop.register_entry(intent, SimpleNamespace(fill_price_raw=10.5), day)
+        panel.close[day+1, 0] = 9.9
+        self.assertEqual(stop.signal(day+1, "sz000001"), "INITIAL_STOP")
+
+        trailing = make_vcp_exit_engine(panel, "stop_trailing_fixed20_v2")
+        trailing.register_entry(intent, SimpleNamespace(fill_price_raw=10.5), day)
+        panel.close[day+1, 0] = 10.1
+        self.assertIsNone(trailing.signal(day+1, "sz000001"))
 
     def test_c_and_e_experiments_use_distinct_exit_and_sizing_paths(self):
         panel, _ = make_vcp_panel()
