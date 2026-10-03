@@ -1,0 +1,23 @@
+{
+  "strategy_version": "alpha158_lite_v1",
+  "feature_version": "alpha158_lite_features_v1",
+  "label_version": "alpha158_lite_excess20_v1",
+  "minimum_history_sessions": 252,
+  "minimum_median_amount_20d": 20000000.0,
+  "unknown_st_policy": "exclude",
+  "label_horizon_sessions": 20,
+  "minimum_train_dates": 252,
+  "validation_dates": 63,
+  "test_dates": 63,
+  "training_date_stride": 5,
+  "ridge_alpha": 100.0,
+  "entry_top_k": 10,
+  "retention_top_k": 20,
+  "portfolio_score_depth": 50,
+  "atr_stop_multiple": 2.0,
+  "trailing_atr_multiple": 3.0,
+  "trailing_activation_r": 1.0,
+  "stagnation_sessions": 20,
+  "stagnation_mfe_r": 0.5,
+  "max_gap_atr": 1.0
+}
