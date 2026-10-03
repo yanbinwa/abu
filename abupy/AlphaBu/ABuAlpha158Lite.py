@@ -134,6 +134,110 @@ def load_alpha158_lite_turnover_config(path):
     return Alpha158LiteTurnoverConfig(**payload)
 
 
+@dataclass(frozen=True)
+class Alpha158LiteLowTurnoverConfig:
+    strategy_version: str = "alpha158_lite_low_turnover_v3"
+    source_strategy_version: str = "alpha158_lite_v1"
+    source_config_sha256: str = ""
+    score_column: str = "alpha_score"
+    target_positions: int = 10
+    review_interval_sessions: int = 5
+    entry_rank_limit: int = 50
+    entry_persistence_reviews: int = 2
+    retention_rank_limit: int = 100
+    exit_persistence_reviews: int = 2
+    minimum_rank_exit_holding_sessions: int = 10
+    max_rank_replacements_per_review: int = 1
+    event_exits_enabled: bool = True
+
+    def __post_init__(self):
+        if not self.source_config_sha256:
+            raise ValueError("source_config_sha256 is required")
+        if self.score_column != "alpha_score":
+            raise ValueError("v3 is frozen to alpha_score")
+        numeric = (
+            self.target_positions, self.review_interval_sessions,
+            self.entry_rank_limit, self.entry_persistence_reviews,
+            self.retention_rank_limit, self.exit_persistence_reviews,
+            self.minimum_rank_exit_holding_sessions,
+            self.max_rank_replacements_per_review,
+        )
+        if min(numeric) <= 0:
+            raise ValueError("low-turnover settings must be positive")
+        if self.retention_rank_limit < self.entry_rank_limit:
+            raise ValueError("retention rank must be no tighter than entry rank")
+        if not self.event_exits_enabled:
+            raise ValueError("v3 requires immediate event exits")
+
+    @property
+    def sha256(self):
+        return hashlib.sha256(json.dumps(
+            asdict(self), sort_keys=True, separators=(",", ":")
+        ).encode()).hexdigest()
+
+
+def load_alpha158_lite_low_turnover_config(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    expected = {item.name for item in fields(Alpha158LiteLowTurnoverConfig)}
+    if set(payload) != expected:
+        raise ValueError("Alpha158LiteLowTurnoverConfig fields mismatch")
+    return Alpha158LiteLowTurnoverConfig(**payload)
+
+
+class Alpha158LiteLowTurnoverPolicy(object):
+    """Review-date persistence and hysteresis for rank-driven trading."""
+
+    def __init__(self, config):
+        self.config = config
+        self.entry_streak = {}
+        self.weak_streak = {}
+
+    def review(self, daily_scores, held_symbols, holding_sessions,
+               blocked_exits=()):
+        held = set(held_symbols)
+        blocked = set(blocked_exits)
+        rank_by_symbol = dict(zip(
+            daily_scores.symbol.astype(str),
+            daily_scores.daily_rank.astype(int))) if len(daily_scores) else {}
+        current_entry = {
+            symbol for symbol, rank in rank_by_symbol.items()
+            if rank <= self.config.entry_rank_limit}
+        self.entry_streak = {
+            symbol: self.entry_streak.get(symbol, 0)+1
+            for symbol in current_entry}
+        for symbol in held:
+            rank = rank_by_symbol.get(symbol, np.inf)
+            self.weak_streak[symbol] = (
+                self.weak_streak.get(symbol, 0)+1
+                if rank > self.config.retention_rank_limit else 0)
+        self.weak_streak = {
+            symbol: value for symbol, value in self.weak_streak.items()
+            if symbol in held}
+
+        entries = [
+            (rank_by_symbol[symbol], symbol)
+            for symbol, streak in self.entry_streak.items()
+            if streak >= self.config.entry_persistence_reviews and
+            symbol not in held and symbol in rank_by_symbol]
+        entries.sort(key=lambda item: (item[0], item[1]))
+        exits = [
+            (rank_by_symbol.get(symbol, np.inf), symbol)
+            for symbol in held if symbol not in blocked and
+            self.weak_streak.get(symbol, 0) >=
+            self.config.exit_persistence_reviews and
+            holding_sessions.get(symbol, 0) >=
+            self.config.minimum_rank_exit_holding_sessions]
+        exits.sort(key=lambda item: (-item[0], item[1]))
+        selected_exits = []
+        for holding, candidate in zip(exits, entries):
+            if len(selected_exits) >= \
+                    self.config.max_rank_replacements_per_review:
+                break
+            if candidate[0] < holding[0]:
+                selected_exits.append(holding[1])
+        return selected_exits, [symbol for _, symbol in entries]
+
+
 def _safe_divide(numerator, denominator):
     numerator = np.asarray(numerator, dtype=float)
     denominator = np.asarray(denominator, dtype=float)

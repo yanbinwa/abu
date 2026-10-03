@@ -1,0 +1,15 @@
+{
+  "strategy_version": "alpha158_lite_low_turnover_v3",
+  "source_strategy_version": "alpha158_lite_v1",
+  "source_config_sha256": "a27b11fd3ceb051be2c44d449a8e917f8c585459c948e8a4347197b5ecdb18e8",
+  "score_column": "alpha_score",
+  "target_positions": 10,
+  "review_interval_sessions": 5,
+  "entry_rank_limit": 50,
+  "entry_persistence_reviews": 2,
+  "retention_rank_limit": 100,
+  "exit_persistence_reviews": 2,
+  "minimum_rank_exit_holding_sessions": 10,
+  "max_rank_replacements_per_review": 1,
+  "event_exits_enabled": true
+}

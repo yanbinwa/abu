@@ -10,8 +10,9 @@ import pandas as pd
 from abupy.AlphaBu.ABuAlpha158Lite import (
     ALPHA158_LITE_DIAGNOSTIC_HORIZONS, ALPHA158_LITE_FEATURES,
     Alpha158LiteConfig, Alpha158LiteExitEngine, Alpha158LiteFeatureEngine,
-    Alpha158LiteModel,
-    load_alpha158_lite_config, load_alpha158_lite_turnover_config,
+    Alpha158LiteLowTurnoverPolicy, Alpha158LiteModel,
+    load_alpha158_lite_config, load_alpha158_lite_low_turnover_config,
+    load_alpha158_lite_turnover_config,
 )
 from tests.test_vcp_strategy import make_vcp_panel
 from scripts.research_alpha158_lite_v1 import (
@@ -21,6 +22,7 @@ from scripts.research_alpha158_lite_v1 import (
 from scripts.backtest_alpha158_lite_v1 import (
     dropout_rank_exits, exit_reason, fixed_path_cost_attribution, rank_frame,
 )
+from scripts.backtest_alpha158_lite_low_turnover_v3 import annual_returns
 
 
 def config(**updates):
@@ -209,6 +211,42 @@ class Alpha158LiteTest(unittest.TestCase):
             root/"configs/selection/alpha158_lite_turnover_v2.json")
         self.assertEqual(turnover.source_config_sha256, source.sha256)
         self.assertEqual(turnover.max_rank_replacements_per_day, 1)
+
+    def test_low_turnover_policy_requires_persistent_entry_and_exit(self):
+        root = Path(__file__).resolve().parents[1]
+        cfg = load_alpha158_lite_low_turnover_config(
+            root/"configs/selection/alpha158_lite_low_turnover_v3.json")
+        policy = Alpha158LiteLowTurnoverPolicy(cfg)
+        daily = pd.DataFrame({
+            "symbol": ["new", "held"], "daily_rank": [1, 101]})
+        exits, entries = policy.review(
+            daily, {"held"}, {"held": 12})
+        self.assertEqual(exits, [])
+        self.assertEqual(entries, [])
+        exits, entries = policy.review(
+            daily, {"held"}, {"held": 17})
+        self.assertEqual(exits, ["held"])
+        self.assertEqual(entries, ["new"])
+
+    def test_low_turnover_policy_honors_minimum_holding(self):
+        root = Path(__file__).resolve().parents[1]
+        cfg = load_alpha158_lite_low_turnover_config(
+            root/"configs/selection/alpha158_lite_low_turnover_v3.json")
+        policy = Alpha158LiteLowTurnoverPolicy(cfg)
+        daily = pd.DataFrame({
+            "symbol": ["new", "held"], "daily_rank": [1, 101]})
+        policy.review(daily, {"held"}, {"held": 2})
+        exits, _ = policy.review(daily, {"held"}, {"held": 7})
+        self.assertEqual(exits, [])
+
+    def test_low_turnover_annual_returns_chain_year_end_capital(self):
+        curve = pd.DataFrame({
+            "date": [20231229, 20240102, 20241231],
+            "capital": [1_100_000., 1_100_000., 1_210_000.],
+        })
+        result = annual_returns(curve)
+        self.assertEqual(result.year.tolist(), [2023, 2024])
+        self.assertTrue(np.allclose(result.return_pct, [10., 10.]))
 
 
 if __name__ == "__main__":
