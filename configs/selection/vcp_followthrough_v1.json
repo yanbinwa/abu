@@ -1,0 +1,7 @@
+{
+  "strategy_version": "vcp_followthrough_v1",
+  "minimum_close_above_breakout_fraction": 0.0,
+  "require_close_above_initial_stop": true,
+  "max_gap_atr": 1.0,
+  "max_planned_risk_fraction": 0.08
+}

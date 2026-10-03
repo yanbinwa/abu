@@ -106,6 +106,9 @@ class Fill:
     actual_initial_r_cash: float = 0.0
     reason_code: str = ""
     limit_rule_id: str = ""
+    execution_limit_model_version: str = "legacy_v1"
+    limit_reference_quality: str = ""
+    limit_reason_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -2,11 +2,11 @@
 
 | 字段 | 内容 |
 |---|---|
-| 状态 | Draft；CR 修订后，实施前冻结 |
-| Spec 版本 | 0.2.0 |
+| 状态 | Draft；第二轮 CR 修订后，实施前冻结 |
+| Spec 版本 | 0.3.0 |
 | 创建日期 | 2026-10-03 |
 | 最近修订 | 2026-10-03 |
-| 基线代码 | `e107288`；实施开始前重新冻结工作树 |
+| 基线代码 | `1f3154a`；实施开始前重新冻结工作树 |
 | 基线数据快照 | `sha256:41e541057ccce0d0a136420912cd9efdc15ac5d5f4638420529f08f27151ad9c` |
 | 基线数据区间 | 2020-01-02 至 2026-09-30 |
 | 上位规范 | [A 股选股研究与组合风险引擎 v2 Spec](selection_research_engine_v2.md) |
@@ -25,6 +25,8 @@
 4. 超预期：实际开盘、竞价或晋级表现相对事前条件期望的偏差；
 5. 退潮过滤：情绪恶化时减少或停止新增风险。
 
+当前 `vcp_residual_v2` 已使用沪深300是否位于 MA200 以上作为入场门禁，以市场残差动量减少个股对市场 beta 的依赖，并在组合层限制行业开放风险。但主候选没有把市场广度、行业强度或行业内趋势龙头用于正式排序。因此，本 Spec 同时定义一条不依赖涨跌停事实的 VCP 市场/行业上下文快速路径，避免完整题材与竞价历史成为验证这些基础假设的前置条件。
+
 付费数据服务不是首期前提。本 Spec 定义如何复用现有免费研究数据，并以自计算日线事件、通达信公开协议和盘后免费接口建立一个可降级、可审计、符合 PIT（point-in-time）要求的数据层。
 
 ## 2. 目标
@@ -32,14 +34,17 @@
 本版本必须实现或为后续实现明确约束：
 
 - 从现有未复权日线重建可复现的历史涨跌停事实；
+- 从现有 PIT 股票池、日线与历史行业直接生成价格无关的市场广度和行业强度；
 - 生成每日市场情绪特征，并保存明确的统计分母；
 - 以稀疏事件表接入首封时间、开板次数、竞价和涨停原因；
 - 以逐日快照保存题材成员关系，禁止用当前概念回填历史；
 - 为龙头相对强度和超预期提供无前视的特征契约；
+- 为 VCP 定义行业内趋势龙头特征，不把连板龙头定义强加给非涨停候选；
 - 在外部免费源缺失时继续运行核心日线派生链路；
 - 复用现有 `TradeIntent -> Risk -> Executor` 路径；
 - 输出覆盖率、冲突率、缺失原因和数据来源，使每个特征可追溯；
 - 为后续实验提供冻结、消融和准入规则，但不预设策略有效。
+- 将市场风险覆盖、行业选择、行业内龙头排序和题材事件增强分别验证，不一次合成为综合评分。
 
 ## 3. 非目标
 
@@ -634,9 +639,105 @@ v1 先输出连续特征，不在数据层硬编码“冰点、修复、高潮�
 
 建议首个可证伪状态模型仅使用少量变量：最高连板、炸板近似率、昨日涨停股次日收益、涨跌停数量和晋级率。不先引入复杂综合评分。
 
-## 12. 题材数据与题材强度
+### 11.4 价格无关市场广度快速路径
 
-### 12.1 题材成员快照
+以下市场上下文只依赖 PIT 股票池和当日及以前日线，不依赖涨跌停参考价、历史 ST 价格限制或外部题材源：
+
+```text
+trade_date
+decision_time
+universe_scope
+eligible_universe_count
+advance_count
+decline_count
+unchanged_count
+positive_return_ratio
+cross_section_return_median
+breadth_above_ma20
+breadth_above_ma60
+breadth_above_ma120
+new_high_20d_ratio
+new_low_20d_ratio
+equal_weight_return_1d
+equal_weight_return_5d
+coverage_ratio
+available_at
+feature_version
+```
+
+该视图命名为 `market_breadth_asof_close`，可以在价格限制状态机完成前先行构建。至少同时报告 `full_eligible` 和 `signal_eligible` 两种 `universe_scope`，禁止把两者拼接成一条序列。分母必须满足：当日已上市、未退市、达到对应指标最短历史长度且当日价格可用。停牌、已知 ST、ST 未知和行情缺失必须分别计数，不得通过删除缺失证券提高广度。趋势、收益和新高/新低使用冻结快照中的复权信号价格；成交与价格限制仍使用未复权价格。
+
+`positive_return_ratio` 使用 `close_qfq[t] / close_qfq[t-1] - 1 > 0`；各 MA 广度分别使用满足对应历史长度的独立分母；`new_high_20d_ratio` 使用 `close_qfq[t] > max(high_qfq[t-20:t])`，`new_low_20d_ratio` 对称定义。停牌或没有连续端点价格的证券不进入相应指标分母，但必须进入缺失/停牌计数。所有分子、分母和排除原因随结果保存。
+
+`market_emotion_asof_close` 中同名广度字段必须引用此视图或通过逐日一致性审计。不得同时维护两个语义不同但名称相同的 `breadth_above_ma120`。
+
+该快速路径只提供连续特征。任何 `NORMAL/CAUTION/RETREAT` 状态仍需单独版本化、预登记并使用滚动或扩展历史阈值。
+
+## 12. 行业代理与题材强度
+
+### 12.1 行业代理强度
+
+历史行业矩阵可以在题材历史不足时提供明确标记的 `industry_proxy`。它不依赖涨跌停参考价，可以与第11.4节并行先行构建。
+
+`industry_strength_daily` 至少包含：
+
+```text
+trade_date
+industry_id
+industry_name
+eligible_member_count
+return_5d
+return_20d
+return_60d
+excess_return_20d_vs_market
+breadth_above_ma20
+breadth_above_ma60
+breadth_above_ma120
+new_high_20d_ratio
+positive_member_ratio
+median_member_return
+amount_expansion
+return_dispersion
+coverage_ratio
+available_at
+feature_version
+```
+
+首轮计算口径冻结在 `market_industry_context_v1.json`：
+
+```json
+{
+  "signal_price_space": "frozen_qfq",
+  "market_benchmark": "sh000300",
+  "return_windows": [5, 20, 60],
+  "ma_windows": [20, 60, 120],
+  "new_high_window": 20,
+  "leader_high_window": 120,
+  "leader_slope_window": 20,
+  "capture_window": 60,
+  "minimum_capture_sessions": 10,
+  "breakout_window": 20,
+  "breakout_order_lookback": 20,
+  "amount_short_window": 5,
+  "amount_control_window": 20,
+  "minimum_industry_members": 5,
+  "minimum_member_coverage": 0.80,
+  "rank_method": "percentile_average_ties"
+}
+```
+
+`return_Nd` 是当日 PIT 成员各自 `close_qfq[t] / close_qfq[t-N] - 1` 的等权平均；`excess_return_20d_vs_market` 减去同期沪深300收益。`amount_expansion` 先逐日汇总行业成交额，再以 `t-4…t` 的中位数除以不重叠的 `t-24…t-5` 中位数。`return_dispersion` 使用成员20日收益的 median absolute deviation。窗口端点、最小覆盖和并列排名方法不得在首次查看策略收益后修改。
+
+约束：
+
+- 行业成员关系必须使用信号日可见的历史行业矩阵；
+- 行业收益使用 PIT 成员等权计算，同时保存可用成员数和覆盖率；
+- 行业强度首期输出连续分量和同日跨行业排名，不硬编码“主线”标签；
+- 市场超额收益只能使用同一决策时点可见的市场收益；
+- 行业内缺失证券不得按零收益或有利收益填充；
+- `industry_proxy` 的结果不得描述为题材效应。
+
+### 12.2 题材成员快照
 
 `theme_membership_snapshot`：
 
@@ -671,7 +772,7 @@ raw_payload_sha256
 - 规范化映射只有在 `mapping_available_at` 之后才能用于策略，不得用今天建立的分类体系改写历史 as-of 特征；
 - 需要跨期统一口径的离线分析可以使用最新 taxonomy，但必须命名为 `retrospective_taxonomy`，不得进入历史交易信号。
 
-### 12.2 题材日特征
+### 12.3 题材日特征
 
 `theme_strength_daily` 至少包含：
 
@@ -711,11 +812,13 @@ label_version
 
 `top_group_next_open_return` 等字段只能出现在该结果表，不得出现在 `theme_strength_daily`。
 
-### 12.3 题材持续性
+### 12.4 题材持续性
 
 题材活跃日必须由冻结规则定义，例如当日满足“至少两只封板”或“至少一只二板以上股票”。连续活跃天数只使用此前快照，不允许根据未来持续性回标起始日。
 
 ## 13. 龙头相对强度
+
+### 13.1 短线事件龙头
 
 龙头只在同日同题材内比较。候选特征包括：
 
@@ -742,6 +845,39 @@ market_cap_rank_within_theme
 - 题材映射缺失时只能生成全市场相对强度，不得伪造题材内排名；
 - 评分权重属于策略配置，不属于事实数据层；
 - 使用流通市值，不以总市值替代而不做标记。
+
+### 13.2 VCP 行业内趋势龙头
+
+VCP 候选不要求曾经涨停。为避免把连板生态的龙头定义强加给趋势突破策略，新增 `industry_trend_leader_daily`：
+
+```text
+trade_date
+symbol
+industry_id
+relative_return_20d_within_industry
+relative_return_60d_within_industry
+residual_momentum_rank_within_industry
+ma120_slope_rank_within_industry
+distance_to_120d_high_rank_within_industry
+up_market_capture_rank_within_industry
+down_market_resilience_rank_within_industry
+amount_share_within_industry
+liquidity_rank_within_industry
+breakout_order_rank_within_industry
+synchronous_breakout_count
+coverage_ratio
+available_at
+feature_version
+```
+
+要求：
+
+- 全部排名只使用当日收盘及以前可见数据；
+- `breakout_order_rank_within_industry` 只根据截至当日已发生的突破顺序计算，不得根据未来确认趋势龙头；
+- 进攻强度和抗跌性必须冻结观察窗口、市场/行业上涨下跌日定义和最小样本数；
+- 原始分量与横截面排名同时保存，组合权重属于策略配置；
+- 无历史行业时保持缺失，不回退到当前行业；
+- 该表可以在题材、首封时间和开板次数不可用时独立运行。
 
 ## 14. 超预期研究集
 
@@ -903,6 +1039,33 @@ UNKNOWN      -> 主实验不新增风险，敏感性实验另行报告
 
 情绪恶化不自动等同于强制清仓。若要触发退出，必须作为单独策略版本和实验变量。
 
+### 16.3 VCP 上下文因子接入边界
+
+现有 `vcp_residual_v2` 保持冻结。新增信息分三层接入，且每层必须能独立关闭：
+
+```text
+market_context_overlay
+  -> 只决定新增风险是否保持、缩量或拒绝
+
+industry_strength_selection
+  -> 在原始 VCP 意图之间评价行业方向，不修改个股 VCP 事实
+
+industry_leader_ranking
+  -> 只在同一行业内部评价候选相对强度
+```
+
+首轮不得把三层合成一个加权总分。市场上下文先以 shadow mode 记录；行业强度和趋势龙头先作为排序或同分决胜信息，不立即增加硬过滤。只有在交易数量和独立入场日簇仍满足上位 Spec 的最低样本门槛时，才允许登记硬过滤版本。
+
+为判断新增因子是否只是重复现有残差动量、MA120斜率或突破强度，每次实验必须输出：
+
+- 新因子与现有评分分量的同日横截面 Spearman 相关；
+- 因子分位对应的后续1、3、5、10和20日收益、MAE、MFE及进入 `+1R` 的比例；
+- 初始止损、停滞退出和跟踪止损的退出构成；
+- 全样本与共同覆盖样本结果；
+- 增量因子启用前后的交易数、入场日期簇和盈利集中度。
+
+短线涨跌停情绪与 VCP 持有周期不同。情绪因子必须分别报告对1—5日假突破风险和20日/最终交易结果的关系，不得根据短周期相关性直接触发中期持仓强制退出。
+
 ## 17. Placebo 与归因
 
 短线信号的随机基线继续使用 placebo v2 完整执行路径，并增加事件条件匹配。
@@ -919,7 +1082,13 @@ UNKNOWN      -> 主实验不新增风险，敏感性实验另行报告
 
 ### 17.2 题材和龙头实验
 
-placebo 至少匹配：
+题材方向选择和题材内部龙头选择检验不同的假设，必须使用不同的 placebo：
+
+1. `industry_or_theme_selection_placebo`：验证选择强行业/题材是否有效。匹配日期、可执行时间、价格、流动性、波动率、市值和价格限制，但不得匹配正在检验的行业/题材强度；
+2. `within_group_leader_placebo`：验证同一行业/题材内的龙头排序是否有效。必须固定行业或题材，再从可比成员中随机选择；
+3. `full_context_placebo`：只用于评价组合后的剩余个股选择能力，匹配当日情绪状态和已启用的上游方向暴露。
+
+对应 placebo 至少考虑：
 
 - 信号日期和可执行时间；
 - 当日情绪状态；
@@ -929,7 +1098,7 @@ placebo 至少匹配：
 - 适用涨跌停规则；
 - 历史波动率。
 
-如果对照不匹配题材和板位，结果只能说明暴露差异，不能说明龙头排序有效。
+如果龙头对照不匹配题材/行业和板位，结果只能说明暴露差异，不能说明龙头排序有效。反过来，如果强题材选择实验预先匹配相同题材强度，就会把待检验效应控制掉，也不能用于判断题材选择是否有效。
 
 ### 17.3 超预期实验
 
@@ -958,15 +1127,17 @@ existing_position_behavior_on_retreat
 
 策略 Spec 必须区分：
 
-1. `emotion_risk_overlay`：只控制是否新增风险或风险预算，主要评价回撤和尾部损失；
-2. `theme_leader_selection`：参与候选筛选和排序，主要评价成本后选股期望；
-3. `expectation_surprise_signal`：使用预测偏差，必须明确偏差可用时间和执行时点。
+1. `market_context_overlay`：使用价格无关广度控制是否新增风险或风险预算；
+2. `industry_strength_selection`：评价行业方向，主要评价成本后选股期望；
+3. `industry_leader_ranking`：在固定行业内评价 VCP 趋势龙头；
+4. `emotion_risk_overlay/theme_leader_selection`：使用涨跌停情绪、题材和短线事件龙头；
+5. `expectation_surprise_signal`：使用预测偏差，必须明确偏差可用时间和执行时点。
 
-三类作用分别消融。风险覆盖层让原策略减少亏损，不能被解释为题材或龙头选股产生 alpha。
+五类作用分别消融。风险覆盖层让原策略减少亏损，不能被解释为行业、题材或龙头选股产生 alpha。
 
 ### 17.5 实验预登记
 
-在第一次查看新特征对应的策略收益前，必须生成 `shortline_experiment_registry_v1.json`，至少冻结：
+在第一次查看新特征对应的策略收益前，必须生成对应实验族的不可变注册表。M8A 使用 `vcp_context_experiment_registry_v1.json`，M8B 使用 `shortline_event_experiment_registry_v1.json`；后者不得覆盖或改写前者。每个注册表至少冻结：
 
 ```text
 primary_hypothesis
@@ -1066,6 +1237,12 @@ shortline_build_manifest.json
 
 ### 20.1 单元测试
 
+- 市场广度各期限使用独立可复算分母；
+- `full_eligible` 与 `signal_eligible` 不混用；
+- 停牌、ST 未知和缺失行情不被填成上涨、下跌或零收益；
+- 行业变更只在生效日及以后改变成员关系；
+- 行业强度等权收益、成交额扩张和 MAD 与手工样本一致；
+- 行业内趋势龙头排名不读取未来突破或未来行业成员；
 - 价格转分和涨跌停四舍五入；
 - 除权除息参考价与昨日实际收盘不同时仍能正确判断；
 - 创业板、科创板风险警示和2026年前后主板风险警示规则；
@@ -1085,6 +1262,8 @@ shortline_build_manifest.json
 
 ### 20.2 集成测试
 
+- 不读取价格限制、题材或竞价数据也能完整生成 M0A 三张特征表；
+- 新旧 `breadth_ma120` 差异可以逐日归因；
 - 选取已知主板、创业板、科创板和 ST 日期，与公开行情人工核验；
 - 选取除权除息、退市整理、重新上市样例与交易所参考价核验；
 - 在 AKShare 与 eltdx 同时覆盖的日期比较涨停池；
@@ -1104,7 +1283,9 @@ abupy/AlphaBu/
   ABuLimitReference.py           # 参考价、交易状态和字段质量
   ABuPriceLimit.py               # 扩展为日期/板块/状态驱动的规则状态机
   ABuShortLineEvents.py          # 规范化事件对象和事实表构建
+  ABuMarketBreadth.py            # 价格无关市场广度和赚钱效应
   ABuMarketEmotion.py            # 市场情绪连续特征
+  ABuIndustryStrength.py         # 历史行业强度和 VCP 趋势龙头
   ABuThemeStrength.py            # 题材快照与强度
   ABuExpectationModel.py         # 滚动预期与 surprise
 
@@ -1114,13 +1295,18 @@ abupy/MarketBu/
 
 configs/selection/
   shortline_data_v1.json
+  market_industry_context_v1.json
   emotion_state_v1.json
   emotion_risk_overlay_v1.json
-  shortline_experiment_registry_v1.json
+  vcp_context_overlay_v1.json
+  vcp_context_experiment_registry_v1.json
+  shortline_event_experiment_registry_v1.json
 
 scripts/
   build_daily_limit_facts.py
   audit_limit_reference.py
+  build_market_context_features.py
+  build_industry_strength_features.py
   collect_shortline_snapshots.py
   normalize_shortline_events.py
   build_market_emotion_features.py
@@ -1131,6 +1317,8 @@ tests/
   test_limit_reference.py
   test_price_limit_regimes.py
   test_daily_limit_facts.py
+  test_market_breadth.py
+  test_industry_strength.py
   test_shortline_event_normalization.py
   test_market_emotion_features.py
   test_theme_strength.py
@@ -1145,12 +1333,21 @@ tests/
 
 ### M0：冻结规范和基线
 
-- 登记修复前代码 `e107288`、现有数据快照和历史结果；
+- 登记修复前代码 `1f3154a`、现有数据快照和历史结果；
 - 将参考价和价格制度缺陷登记为已知基线问题；
-- 冻结本 Spec 0.2.0；
+- 冻结本 Spec 0.3.0；
 - 登记现有工作树中与本项目无关的修改；
 - 明确首期只研究沪深 A 股；
 - 完成条件：输入、版本和非目标清晰可审计。
+
+### M0A：价格无关市场与行业快速路径
+
+- 使用现有 PIT 股票池构建 `market_breadth_asof_close`；
+- 使用历史行业矩阵构建 `industry_strength_daily`；
+- 构建不依赖涨停事件的 `industry_trend_leader_daily`；
+- 与现有 `breadth_ma120` 逐日对账并冻结唯一权威口径；
+- 只生成特征、覆盖和相关性诊断，不查看策略收益；
+- 完成条件：未来数据修改不改变历史特征，分母和成员可逐日复算，价格限制链路缺失不阻断本路径。
 
 ### M1：参考价和价格限制状态机
 
@@ -1179,6 +1376,7 @@ tests/
 ### M4：市场情绪 as-of 特征
 
 - 分别构建 `market_emotion_asof_open` 和 `market_emotion_asof_close`；
+- 引用或对账 M0A 的权威市场广度，禁止重复定义同名字段；
 - 物理隔离未来结果；
 - 输出覆盖和缺失报告；
 - 完成条件：任一日指标可追溯到证券级事实和统计分母。
@@ -1204,34 +1402,52 @@ tests/
 
 - 只基于有日期的题材快照；
 - 生成题材强度和题材内相对排名；
-- 行业代理作为独立消融；
+- 复用 M0A 的行业代理和趋势龙头作为独立消融，不将其描述为题材结果；
 - 先构建 `daily_open` 版本；
 - 使用滚动历史估计开盘收益和晋级概率；
 - 拆分 predictions、actuals、surprises 和 forward outcomes；
 - 竞价版仅在历史覆盖和执行时序通过审计后启用；
 - 完成条件：无当前标签回填，所有排名保留原始分量，每个预测都能证明训练数据早于预测结果。
 
-### M8：实验预登记和情绪风险覆盖层
+### M8A：VCP 日线上下文预登记和 Shadow mode
 
-- 新建并冻结短线策略 Spec；
-- 生成 `shortline_experiment_registry_v1.json`；
-- 先在一个冻结基础策略上以 shadow mode 运行 `emotion_risk_overlay`；
+- 在 M0A 完成后新建并冻结 `vcp_context_overlay_v1` 接入契约，不等待 M1—M7；
+- 生成 `vcp_context_experiment_registry_v1.json`；
+- 先在冻结的 `vcp_residual_v2` 上以 shadow mode 运行 `market_context_overlay`；
+- 为行业强度和趋势龙头记录排序变化，但不改变原始成交；
 - 主要评价回撤、Expected Shortfall、暴露和收益保留率；
 - 完成条件：风险覆盖与选股贡献没有混合解释，第一次收益检查前已经冻结主假设和检验族。
 
-### M9：选股信号与统一验证
+### M9A：VCP 日线上下文消融
 
 按以下顺序做消融，不一次混合全部因素：
 
-1. 现有策略原版；
-2. 现有策略 + 情绪状态过滤；
-3. 独立题材强度候选；
-4. 题材候选 + 龙头排序；
-5. 日线开盘超预期；
-6. 完整事件覆盖样本；
-7. 统一风险审批、placebo v2 和压力测试。
+1. 冻结的 `vcp_residual_v2` 原版；
+2. 原版 + 市场上下文 shadow，不改变交易路径；
+3. 预登记后启用市场风险覆盖；
+4. 独立行业强度排序；
+5. 行业候选 + 行业内趋势龙头排序；
+6. 使用与各自假设对应的 placebo、统一风险审批和压力测试。
 
-完成条件沿用上位 v2 Spec 的成本、placebo、交易簇、集中度和前瞻验证门槛。
+### M8B：短线事件增强预登记和 Shadow mode
+
+- 在 M4 和 M7 完成后冻结涨跌停情绪、题材、短线事件龙头与超预期的增量假设；
+- 生成独立的 `shortline_event_experiment_registry_v1.json`；
+- 分别声明相对 M0A 市场广度、行业代理和趋势龙头的新增信息；
+- 冻结共同覆盖样本、决策/可用/执行时点和各自 placebo；
+- 不修改 M8A/M9A 的冻结定义，也不自动选用 M9A 中历史表现最好的组合作为唯一基线；
+- 完成条件：事件增强的每个主假设在查看收益前登记，精细字段覆盖不足时保持 research-only。
+
+### M9B：短线事件增强消融
+
+1. 在日线共同覆盖样本上增加涨跌停情绪；
+2. 覆盖合格样本上的题材强度；
+3. 同题材内短线事件龙头排序；
+4. 日线开盘超预期；
+5. 覆盖完整样本上的精细事件增强；
+6. 使用与各自假设对应的 placebo、统一风险审批和压力测试。
+
+相邻实验只改变一个维度。行业/题材方向选择与组内龙头选择使用不同 placebo。完成条件沿用上位 v2 Spec 的成本、placebo、交易簇、集中度和前瞻验证门槛。
 
 ## 23. 运行产物
 
@@ -1245,8 +1461,11 @@ intraday_limit_events.parquet
 auction_snapshots.parquet
 theme_membership_snapshots.parquet
 theme_taxonomy_history.parquet
+market_breadth_asof_close.parquet
 market_emotion_asof_open.parquet
 market_emotion_asof_close.parquet
+industry_strength_daily.parquet
+industry_trend_leader_daily.parquet
 theme_strength_daily.parquet
 theme_forward_outcomes.parquet
 leader_features_daily.parquet
@@ -1259,7 +1478,8 @@ availability_evidence_daily.csv
 provider_conflicts.csv
 missing_reasons.csv
 quality_report.json
-shortline_experiment_registry_v1.json
+vcp_context_experiment_registry_v1.json
+shortline_event_experiment_registry_v1.json
 ```
 
 如果运行环境暂不采用 Parquet，可以使用 CSV，但必须保持同一字段语义、类型清单和内容哈希。
@@ -1268,6 +1488,9 @@ shortline_experiment_registry_v1.json
 
 第一轮不等待免费源补齐全部历史，先使用现有项目完成：
 
+- 价格无关的市场广度和赚钱效应连续特征；
+- 历史行业代理强度；
+- VCP 行业内趋势龙头相对特征；
 - 涨跌停参考价和历史制度修复；
 - 涨跌停和连板重建；
 - 炸板近似；
@@ -1277,7 +1500,7 @@ shortline_experiment_registry_v1.json
 - 行业代理群体强度；
 - 退潮过滤的独立消融。
 
-但在参考价、规则状态和已知样本覆盖率通过门槛前，只能生成诊断事实，不得输出“全市场情绪”或进入正式策略收益比较。
+价格无关快速路径不受涨跌停覆盖门槛阻断，但必须满足自己的 PIT 股票池、行情和行业覆盖要求。涨跌停、连板、晋级率和炸板相关特征在参考价、规则状态和已知样本覆盖率通过门槛前，只能生成诊断事实，不得输出“全市场短线情绪”或进入正式策略收益比较。
 
 以下内容只有覆盖审计通过后才能进入正式策略验证：
 
@@ -1297,9 +1520,19 @@ shortline_experiment_registry_v1.json
 3. 生成新的特征版本和数据快照；
 4. 不覆盖旧事实表、旧模型预测和旧实验结果。
 
-在 M5 覆盖审计完成前，不把免费外部源描述为五年完整历史。在 M7 完成前，不根据“超预期”叙述建立交易规则。在 M8 完成策略 Spec 和实验预登记前，不查看新策略收益。在分钟级执行模型完成前，不进行竞价后当日开盘成交回测。
+在 M5 覆盖审计完成前，不把免费外部源描述为五年完整历史。在 M7 完成前，不根据“超预期”叙述建立交易规则。在 M8A 完成前，不查看市场/行业上下文策略收益；在 M8B 完成前，不查看短线事件增强策略收益。在分钟级执行模型完成前，不进行竞价后当日开盘成交回测。
 
 ## 26. 修订记录
+
+### 0.3.0 — 2026-10-03
+
+- 增加不依赖价格限制和外部题材源的市场广度、行业强度与 VCP 趋势龙头快速路径；
+- 明确当前 VCP 已有市场趋势、残差动量和行业风险信息，但尚未使用行业强度与龙头排序；
+- 将行业代理与题材效应分开，增加 `industry_strength_daily` 和 `industry_trend_leader_daily` 契约；
+- 增加 VCP 市场覆盖、行业选择和行业内龙头三层接入边界；
+- 要求先使用 shadow 和排序，避免多层硬过滤导致样本枯竭；
+- 按行业/题材方向选择与组内龙头选择拆分 placebo；
+- 增加因子冗余、MAE/MFE、不同持有期和共同覆盖样本诊断。
 
 ### 0.2.0 — 2026-10-03
 

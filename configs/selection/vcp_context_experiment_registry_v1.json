@@ -1,0 +1,82 @@
+{
+  "registry_version": "vcp_context_experiment_registry_v1",
+  "status": "PREREGISTERED_BEFORE_CONTEXT_RETURN_ANALYSIS",
+  "registered_at": "2026-10-03T00:00:00+08:00",
+  "base_strategy_version": "vcp_residual_v2",
+  "base_exit_profile": "stop_trailing_stagnation_v2",
+  "feature_versions": [
+    "market_industry_context_v1"
+  ],
+  "historical_diagnostic_period": [20210114, 20260930],
+  "walk_forward_protocol": "ANNUAL_BLOCKS_NO_RETUNING_PLUS_CONTINUOUS_PATH",
+  "forward_start_date": 20261009,
+  "forward_definition": "FIRST_SUCCESSFULLY_ARCHIVED_TRADING_SESSION_ON_OR_AFTER_DATE",
+  "minimum_trade_count": 100,
+  "minimum_entry_clusters": 40,
+  "minimum_known_market_states": 3,
+  "common_coverage_definition": "SAME_BASE_INTENTS_WITH_ALL_REGISTERED_CONTEXT_FIELDS_AVAILABLE",
+  "multiple_testing_family": "VCP_CONTEXT_V1_THREE_PRIMARY_HYPOTHESES",
+  "multiple_testing_policy": "BENJAMINI_HOCHBERG_FDR_Q_LE_0_10",
+  "historical_evidence_role": "DIAGNOSTIC_AND_REJECTION_ONLY",
+  "forward_minimum_months": 6,
+  "forward_minimum_entry_clusters": 30,
+  "parameter_search_allowed": false,
+  "hypotheses": [
+    {
+      "hypothesis_id": "H1_MARKET_CONTEXT",
+      "change": "MARKET_NEW_RISK_MULTIPLIER_ONLY",
+      "primary_metric": "COST_AFTER_DAILY_EXPECTED_SHORTFALL_95",
+      "direction": "GREATER_IS_BETTER_LESS_NEGATIVE",
+      "secondary_metrics": [
+        "MAX_DRAWDOWN",
+        "FALSE_BREAKOUT_RATE",
+        "RETURN_RETENTION_RATIO",
+        "AVERAGE_MARKET_EXPOSURE",
+        "FILTERED_INTENT_FORWARD_R"
+      ],
+      "placebo_version": "MARKET_ACCEPTED_VS_FILTERED_FIXED_INTENTS_V1",
+      "stop_conditions": [
+        "RETURN_RETENTION_RATIO_LT_0_70",
+        "NO_TAIL_RISK_IMPROVEMENT",
+        "MINIMUM_SAMPLE_NOT_MET"
+      ]
+    },
+    {
+      "hypothesis_id": "H2_INDUSTRY_STRENGTH",
+      "change": "INDUSTRY_EXCESS_RETURN_20D_RANK_ONLY",
+      "primary_metric": "COST_AFTER_MEAN_R_PER_CLOSED_TRADE",
+      "direction": "GREATER_IS_BETTER",
+      "secondary_metrics": [
+        "TRADE_CLUSTER_BOOTSTRAP_CI_LOW",
+        "PLACEBO_PERCENTILE",
+        "TURNOVER",
+        "CAPACITY",
+        "ANNUAL_BLOCK_STABILITY"
+      ],
+      "placebo_version": "INDUSTRY_SELECTION_PLACEBO_V1",
+      "stop_conditions": [
+        "CI_LOW_LE_0",
+        "PLACEBO_PERCENTILE_LT_0_90",
+        "MINIMUM_SAMPLE_NOT_MET"
+      ]
+    },
+    {
+      "hypothesis_id": "H3_WITHIN_INDUSTRY_TREND_LEADER",
+      "change": "RESIDUAL_MOMENTUM_WITHIN_INDUSTRY_RANK_ONLY",
+      "primary_metric": "COST_AFTER_MEAN_R_PER_CLOSED_TRADE",
+      "direction": "GREATER_IS_BETTER",
+      "secondary_metrics": [
+        "TRADE_CLUSTER_BOOTSTRAP_CI_LOW",
+        "WITHIN_INDUSTRY_PLACEBO_PERCENTILE",
+        "PROFIT_CONCENTRATION_TOP5",
+        "ANNUAL_BLOCK_STABILITY"
+      ],
+      "placebo_version": "WITHIN_INDUSTRY_LEADER_PLACEBO_V1",
+      "stop_conditions": [
+        "CI_LOW_LE_0",
+        "PLACEBO_PERCENTILE_LT_0_90",
+        "MINIMUM_SAMPLE_NOT_MET"
+      ]
+    }
+  ]
+}

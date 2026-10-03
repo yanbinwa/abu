@@ -1,0 +1,7 @@
+{
+  "strategy_version": "vcp_residual_standardized_v1",
+  "residual_momentum_standardized_weight": 0.25,
+  "ma120_slope_weight": 0.25,
+  "contraction_tightness_weight": 0.25,
+  "breakout_strength_weight": 0.25
+}

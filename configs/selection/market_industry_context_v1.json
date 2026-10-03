@@ -1,0 +1,19 @@
+{
+  "feature_version": "market_industry_context_v1",
+  "signal_price_space": "frozen_qfq",
+  "market_benchmark": "sh000300",
+  "return_windows": [5, 20, 60],
+  "ma_windows": [20, 60, 120],
+  "new_high_window": 20,
+  "leader_high_window": 120,
+  "leader_slope_window": 20,
+  "capture_window": 60,
+  "minimum_capture_sessions": 10,
+  "breakout_window": 20,
+  "breakout_order_lookback": 20,
+  "amount_short_window": 5,
+  "amount_control_window": 20,
+  "minimum_industry_members": 5,
+  "minimum_member_coverage": 0.8,
+  "rank_method": "percentile_average_ties"
+}

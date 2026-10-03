@@ -1,0 +1,10 @@
+{
+  "strategy_version": "vcp_quality_rank_v1",
+  "feature_version": "vcp_quality_features_v1",
+  "label_version": "vcp_execution_labels_v1",
+  "ridge_alpha": 10.0,
+  "logistic_c": 0.1,
+  "false_breakout_penalty_return": 0.03,
+  "minimum_train_rows": 200,
+  "minimum_class_rows": 20
+}

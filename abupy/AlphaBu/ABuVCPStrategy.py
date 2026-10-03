@@ -366,6 +366,9 @@ class VCPStrategy(object):
                 metadata={
                     "max_buy_price_raw": max_price,
                     "breakout_level": float(data["breakout_level"][column]),
+                    "breakout_strength": float(data["breakout_strength"][column]),
+                    "contraction_tightness": float(data["tightness"][column]),
+                    "ma120_slope": float(data["slopes"][column]),
                     "variant": variant,
                     "hold_sessions": self.core.fixed_hold_sessions,
                     "stop_fraction": 1 - stop_adjusted / adjusted,

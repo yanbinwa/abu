@@ -9,12 +9,14 @@ import pandas as pd
 from abupy.AlphaBu.ABuPortfolioExecutor import (
     ExecutionConfig, PortfolioExecutor, load_execution_config,
 )
+from abupy.AlphaBu.ABuLimitReference import LimitReference, LimitReferenceStore
 from abupy.AlphaBu.ABuSelectionPanelV2 import SelectionPanelV2
 from abupy.AlphaBu.ABuSelectionStrategies import SelectionPanel
 from abupy.AlphaBu.ABuTradeIntent import TradeIntent
 
 
-def make_executor(opens=None, st_known=True, slippage=0):
+def make_executor(opens=None, st_known=True, slippage=0, mode="pit_corrected",
+                  limit_references=None):
     dates = np.array([20250102, 20250103, 20250106, 20250107], dtype=np.int32)
     close = np.array([[10.0], [10.0], [9.0], [9.2]], dtype=np.float32)
     opening = np.array(opens or [[10.0], [10.0], [9.0], [9.2]], dtype=np.float32)
@@ -34,7 +36,9 @@ def make_executor(opens=None, st_known=True, slippage=0):
     known = np.full(close.shape, st_known, dtype=bool)
     panel = SelectionPanelV2(base, master, st_status_known=known)
     return PortfolioExecutor(
-        panel, ExecutionConfig(initial_cash=100_000, slippage_bps=slippage)
+        panel, ExecutionConfig(initial_cash=100_000, slippage_bps=slippage,
+                               mode=mode),
+        limit_references=limit_references,
     )
 
 
@@ -178,6 +182,52 @@ class PortfolioExecutorTest(unittest.TestCase):
         row = executor.process_close(2)
         self.assertEqual(row["stocks"], 0.0)
         self.assertIn("sz000001", executor.positions)
+
+    def test_v2_executor_uses_sidecar_reference_and_records_model(self):
+        store = LimitReferenceStore([LimitReference(
+            trade_date=20250103, symbol="sz000001",
+            previous_raw_close=10.0, limit_reference_price_raw=9.0,
+            source="fixture", quality="known",
+            available_at="2025-01-03T09:15:00+08:00",
+            reason_codes=("PROVIDER_PRE_CLOSE",),
+        )])
+        executor = make_executor(
+            opens=[[10.0], [10.0], [9.0], [9.2]],
+            mode="limit_reference_v2", limit_references=store,
+        )
+        executor.approve_order(intent(), 100, 20250103, 10.5, 2.0)
+        fill = executor.process_open(1)[0]
+        self.assertEqual(fill.status, "rejected")
+        self.assertEqual(fill.reason_code, "OPEN_AT_LIMIT_UP")
+        self.assertEqual(fill.execution_limit_model_version,
+                         "cn_equity_limit_v2_20260706")
+        self.assertEqual(fill.limit_reference_quality, "known")
+        self.assertIn("PROVIDER_PRE_CLOSE", fill.limit_reason_codes)
+        self.assertIn("REFERENCE_PRICE_CHANGED", fill.limit_reason_codes)
+
+    def test_v2_executor_unknown_reference_uses_audited_fallback_only(self):
+        executor = make_executor(mode="limit_reference_v2")
+        executor.approve_order(intent(), 100, 20250103, 10.5, 2.0)
+        fill = executor.process_open(1)[0]
+        self.assertEqual(fill.status, "filled")
+        self.assertTrue(fill.limit_rule_id.startswith("execution_fallback_"))
+        self.assertEqual(fill.limit_reference_quality, "unknown")
+        self.assertIn("LIMIT_REGIME_FALLBACK", fill.limit_reason_codes)
+
+    def test_v2_executor_does_not_use_after_close_reference_at_open(self):
+        store = LimitReferenceStore([LimitReference(
+            trade_date=20250103, symbol="sz000001",
+            limit_reference_price_raw=9.0, source="late_fixture", quality="known",
+            available_at="2025-01-03T15:05:00+08:00",
+            reason_codes=("PROVIDER_PRE_CLOSE",),
+        )])
+        executor = make_executor(
+            mode="limit_reference_v2", limit_references=store)
+        executor.approve_order(intent(), 100, 20250103, 10.5, 2.0)
+        fill = executor.process_open(1)[0]
+        self.assertEqual(fill.status, "filled")
+        self.assertEqual(fill.limit_reference_quality, "unknown")
+        self.assertIn("LIMIT_REGIME_FALLBACK", fill.limit_reason_codes)
 
 
 if __name__ == "__main__":

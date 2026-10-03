@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import sys
 import time
-from datetime import date, timedelta
+import uuid
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +21,13 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from abupy.AlphaBu.ABuLimitReference import (  # noqa: E402
+    LimitReference, LimitReferenceStore,
+)
+from abupy.AlphaBu.ABuShortLineEvents import (  # noqa: E402
+    json_safe_records, stable_payload_hash, stable_schema_hash,
+)
 
 
 INDEX_SYMBOLS = ("sh000001", "sh000300", "sz399001", "sz399006")
@@ -65,8 +74,103 @@ def normalize_spot(frame, trade_date, volume_multiplier=100.0):
     work["amount"] = work["成交额"]
     work["turnover"] = work["换手率"] / 100.0
     work["outstanding_share"] = work["流通市值"] / work["close"]
-    return work[["date", "symbol", "名称", "open", "high", "low", "close",
-                 "pre_close", "volume", "amount", "outstanding_share", "turnover"]]
+    result = work[["date", "symbol", "名称", "open", "high", "low", "close",
+                   "pre_close", "volume", "amount", "outstanding_share", "turnover"]]
+    return result.sort_values("symbol").reset_index(drop=True)
+
+
+def write_limit_reference_snapshot(spot, snapshot_dir, provider,
+                                   collected_at=None):
+    """Persist explicit spot ``pre_close`` values as an immutable sidecar."""
+    snapshot_dir = Path(snapshot_dir)
+    collected_at = collected_at or datetime.now(timezone.utc).astimezone().isoformat()
+    records = []
+    for row in spot.itertuples(index=False):
+        records.append(LimitReference(
+            trade_date=int(row.date), symbol=str(row.symbol),
+            limit_reference_price_raw=float(row.pre_close),
+            source="{}_spot_snapshot".format(provider), quality="known",
+            effective_at=str(int(row.date)), available_at=str(collected_at),
+            availability_evidence="{}/stock_spot.csv".format(snapshot_dir),
+            reason_codes=("PROVIDER_PRE_CLOSE",),
+        ))
+    output = snapshot_dir / "limit_reference.csv"
+    if output.exists():
+        existing_frame = LimitReferenceStore.read(output).to_frame()
+        candidate_frame = LimitReferenceStore(records).to_frame()
+        compare = [
+            "trade_date", "symbol", "limit_reference_price_raw", "source",
+            "quality", "effective_at", "availability_evidence", "reason_codes",
+        ]
+        existing_compare = existing_frame[compare].copy()
+        candidate_compare = candidate_frame[compare].copy()
+        for column in compare:
+            if column not in ("trade_date", "limit_reference_price_raw"):
+                existing_compare[column] = existing_compare[column].astype(str)
+                candidate_compare[column] = candidate_compare[column].astype(str)
+        existing_compare["trade_date"] = pd.to_numeric(
+            existing_compare["trade_date"], errors="raise").astype(int)
+        candidate_compare["trade_date"] = pd.to_numeric(
+            candidate_compare["trade_date"], errors="raise").astype(int)
+        existing_compare = existing_compare.sort_values(
+            ["trade_date", "symbol"]).reset_index(drop=True)
+        candidate_compare = candidate_compare.sort_values(
+            ["trade_date", "symbol"]).reset_index(drop=True)
+        if not existing_compare.equals(candidate_compare):
+            raise RuntimeError("immutable limit-reference snapshot conflict")
+        existing = output.read_bytes()
+        digest = hashlib.sha256(existing).hexdigest()
+        return output, digest
+    LimitReferenceStore(records).write(output)
+    return output, hashlib.sha256(output.read_bytes()).hexdigest()
+
+
+def write_immutable_frame(frame, path):
+    """Publish one canonical CSV without replacing an earlier snapshot."""
+    path = Path(path)
+    buffer = io.StringIO()
+    frame.to_csv(buffer, index=False)
+    payload = buffer.getvalue().encode("utf-8")
+    if path.exists():
+        existing = path.read_bytes()
+        if existing != payload:
+            raise RuntimeError("immutable market snapshot conflict: {}".format(path))
+        return hashlib.sha256(existing).hexdigest()
+    with path.open("xb") as output:
+        output.write(payload)
+        output.flush()
+        os.fsync(output.fileno())
+    return hashlib.sha256(payload).hexdigest()
+
+
+def write_market_provider_capture(frame, snapshot_dir, provider, trade_date,
+                                  collected_at=None, nonce=None):
+    """Archive every decoded provider response in its own immutable batch."""
+    collected_at = collected_at or datetime.now(timezone.utc).astimezone().isoformat()
+    nonce = nonce or uuid.uuid4().hex[:8]
+    stamp = "".join(item for item in collected_at if item.isdigit())[:20]
+    batch = Path(snapshot_dir) / "raw_batches" / (stamp + "_" + nonce)
+    batch.mkdir(parents=True, exist_ok=False)
+    records = json_safe_records(frame)
+    raw = {
+        "columns": [str(item) for item in frame.columns], "records": records,
+    }
+    raw_path = batch / "provider_frame.json"
+    raw_path.write_text(json.dumps(
+        raw, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8")
+    metadata = {
+        "capture_version": "paper_market_provider_capture_v1",
+        "provider": provider, "trade_date": int(trade_date),
+        "collected_at": collected_at, "row_count": len(records),
+        "schema_sha256": stable_schema_hash(frame.columns),
+        "payload_sha256": stable_payload_hash(records),
+        "raw_path": str(raw_path),
+    }
+    (batch / "metadata.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    return metadata
 
 
 def _csv_header_and_last(path):
@@ -236,9 +340,14 @@ def update_market_data(signal_dir, raw_dir, paper_dir, today=None, dry_run=False
         raise RuntimeError("incomplete market snapshot: {} valid rows".format(len(spot)))
     snapshot_dir = paper_dir / "market_snapshots" / str(trade_date)
     snapshot_dir.mkdir(parents=True, exist_ok=True)
+    collected_at = datetime.now(timezone.utc).astimezone().isoformat()
+    provider_capture = write_market_provider_capture(
+        spot_raw, snapshot_dir, spot_provider, trade_date,
+        collected_at=collected_at)
     snapshot_path = snapshot_dir / "stock_spot.csv"
-    spot.to_csv(snapshot_path, index=False)
-    digest = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
+    digest = write_immutable_frame(spot, snapshot_path)
+    reference_path, reference_digest = write_limit_reference_snapshot(
+        spot, snapshot_dir, spot_provider, collected_at=collected_at)
     operations, skipped = build_append_records(
         spot, signal_dir, raw_dir, trade_date)
     if not dry_run:
@@ -272,6 +381,9 @@ def update_market_data(signal_dir, raw_dir, paper_dir, today=None, dry_run=False
         "trade_date": trade_date, "valid_spot_rows": len(spot),
         "append_operations": len(operations), "skipped": skipped,
         "snapshot": str(snapshot_path), "snapshot_sha256": digest,
+        "provider_capture": provider_capture,
+        "limit_reference_snapshot": str(reference_path),
+        "limit_reference_sha256": reference_digest,
     }
     (paper_dir / "last_market_update.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n")

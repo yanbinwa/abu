@@ -35,7 +35,7 @@ class SelectionPanel(object):
     def __init__(self, dates, symbols, opening, high, low, close, volume,
                  benchmark_close, benchmark_open=None, execution=None,
                  amount=None, market_cap=None, industry=None,
-                 corporate_actions=None, st_status=None):
+                 corporate_actions=None, st_status=None, industry_labels=None):
         self.dates = np.asarray(dates, dtype=np.int32)
         self.symbols = tuple(symbols)
         self.open = np.asarray(opening, dtype=np.float32)
@@ -70,6 +70,7 @@ class SelectionPanel(object):
                            if market_cap is None else np.asarray(market_cap, dtype=np.float64))
         self.industry = (np.full(expected, -1, dtype=np.int16) if industry is None
                          else np.asarray(industry, dtype=np.int16))
+        self.industry_labels = dict(industry_labels or {})
         self.st_status = (np.zeros(expected, dtype=bool) if st_status is None
                           else np.asarray(st_status, dtype=bool))
         self.corporate_actions = corporate_actions or {}
@@ -189,6 +190,8 @@ class SelectionPanel(object):
 
         industry = cls._load_industry_matrix(
             research_dir / 'industry_changes.csv', dates, symbols)
+        industry_labels = cls._load_industry_labels(
+            research_dir / 'industry_changes.csv')
         st_status = cls._load_sz_st_matrix(
             research_dir / 'sz_name_changes.csv', dates, symbols)
         actions = cls._load_corporate_actions(
@@ -197,7 +200,8 @@ class SelectionPanel(object):
                    signal['close'], signal['volume'], benchmark.close.to_numpy(),
                    benchmark.open.to_numpy(), execution=execution, amount=amount,
                    market_cap=market_cap, industry=industry,
-                   corporate_actions=actions, st_status=st_status)
+                   corporate_actions=actions, st_status=st_status,
+                   industry_labels=industry_labels)
 
     @staticmethod
     def _load_sz_st_matrix(path, dates, symbols):
@@ -255,6 +259,24 @@ class SelectionPanel(object):
                 label = str(row[industry_column])
                 matrix[start:, column] = label_codes[label]
         return matrix
+
+    @staticmethod
+    def _load_industry_labels(path):
+        if not path.exists() or path.stat().st_size == 0:
+            return {}
+        frame = pd.read_csv(path, dtype={'证券代码': str})
+        if frame.empty:
+            return {}
+        if '分类标准' in frame:
+            preferred = frame[frame['分类标准'].astype(str).str.contains('申银万国')]
+            if not preferred.empty:
+                frame = preferred
+        industry_column = next((name for name in ('行业门类', '行业大类', '行业次类')
+                                if name in frame), None)
+        if industry_column is None:
+            return {}
+        labels = sorted(frame[industry_column].dropna().astype(str).unique())
+        return {position: name for position, name in enumerate(labels)}
 
     @staticmethod
     def _load_corporate_actions(path, dates, symbols):
