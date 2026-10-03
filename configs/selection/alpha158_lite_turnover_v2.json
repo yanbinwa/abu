@@ -1,0 +1,11 @@
+{
+  "strategy_version": "alpha158_lite_turnover_v2",
+  "source_strategy_version": "alpha158_lite_v1",
+  "source_config_sha256": "a27b11fd3ceb051be2c44d449a8e917f8c585459c948e8a4347197b5ecdb18e8",
+  "score_column": "alpha_score",
+  "construction": "topk_dropout",
+  "target_positions": 10,
+  "entry_candidate_depth": 50,
+  "max_rank_replacements_per_day": 1,
+  "event_exits_enabled": true
+}

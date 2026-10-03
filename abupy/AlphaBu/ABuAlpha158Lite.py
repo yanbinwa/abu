@@ -92,6 +92,48 @@ def load_alpha158_lite_config(path):
     return Alpha158LiteConfig(**payload)
 
 
+@dataclass(frozen=True)
+class Alpha158LiteTurnoverConfig:
+    strategy_version: str = "alpha158_lite_turnover_v2"
+    source_strategy_version: str = "alpha158_lite_v1"
+    source_config_sha256: str = ""
+    score_column: str = "alpha_score"
+    construction: str = "topk_dropout"
+    target_positions: int = 10
+    entry_candidate_depth: int = 50
+    max_rank_replacements_per_day: int = 1
+    event_exits_enabled: bool = True
+
+    def __post_init__(self):
+        if not self.source_config_sha256:
+            raise ValueError("source_config_sha256 is required")
+        if self.score_column != "alpha_score":
+            raise ValueError("v2 is frozen to alpha_score")
+        if self.construction != "topk_dropout":
+            raise ValueError("unknown turnover construction")
+        if min(self.target_positions, self.entry_candidate_depth,
+               self.max_rank_replacements_per_day) <= 0:
+            raise ValueError("turnover settings must be positive")
+        if self.entry_candidate_depth < self.target_positions:
+            raise ValueError("entry depth must cover target positions")
+        if not self.event_exits_enabled:
+            raise ValueError("v2 requires immediate event exits")
+
+    @property
+    def sha256(self):
+        return hashlib.sha256(json.dumps(
+            asdict(self), sort_keys=True, separators=(",", ":")
+        ).encode()).hexdigest()
+
+
+def load_alpha158_lite_turnover_config(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    expected = {item.name for item in fields(Alpha158LiteTurnoverConfig)}
+    if set(payload) != expected:
+        raise ValueError("Alpha158LiteTurnoverConfig fields mismatch")
+    return Alpha158LiteTurnoverConfig(**payload)
+
+
 def _safe_divide(numerator, denominator):
     numerator = np.asarray(numerator, dtype=float)
     denominator = np.asarray(denominator, dtype=float)

@@ -53,6 +53,33 @@ def exit_reason(event_reason, symbol, retained_symbols):
     return None
 
 
+def dropout_rank_exits(held_symbols, daily_scores, maximum, blocked=()):
+    """Return at most ``maximum`` worst holdings with a superior replacement."""
+    held = set(held_symbols)
+    blocked = set(blocked)
+    rank_by_symbol = dict(zip(
+        daily_scores.symbol.astype(str),
+        daily_scores.daily_rank.astype(int))) if len(daily_scores) else {}
+    candidates = [
+        (int(row.daily_rank), str(row.symbol))
+        for row in daily_scores.itertuples()
+        if str(row.symbol) not in held
+    ]
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    holdings = [
+        (rank_by_symbol.get(symbol, np.inf), symbol)
+        for symbol in held if symbol not in blocked
+    ]
+    holdings.sort(key=lambda item: (-item[0], item[1]))
+    result = []
+    for holding, candidate in zip(holdings, candidates):
+        if len(result) >= int(maximum):
+            break
+        if candidate[0] < holding[0]:
+            result.append(holding[1])
+    return result
+
+
 def fixed_path_cost_attribution(fills, net_return_pct, initial_cash):
     """Remove observed fill frictions without changing quantities or path."""
     filled = fills[fills.status.eq("filled")].copy()
@@ -86,7 +113,9 @@ def _seed_marks(executor, panel, first):
 
 
 def run_rank_portfolio(panel, scores, score_column, config, risk_config,
-                       end_date):
+                       end_date, rank_exit_mode="buffer",
+                       max_rank_replacements_per_day=None,
+                       entry_candidate_depth=None, experiment_name=None):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -129,8 +158,10 @@ def run_rank_portfolio(panel, scores, score_column, config, risk_config,
                               "reason": reason})
 
         daily = grouped.get(signal_date, pd.DataFrame())
+        entry_depth = (config.entry_top_k if entry_candidate_depth is None
+                       else int(entry_candidate_depth))
         entry_candidates = daily[
-            daily.daily_rank <= config.entry_top_k] if len(daily) else daily
+            daily.daily_rank <= entry_depth] if len(daily) else daily
         held_or_ordered = set(executor.positions) | {
             order.symbol for order in executor.orders if order.side == "buy"}
         if len(entry_candidates):
@@ -172,16 +203,33 @@ def run_rank_portfolio(panel, scores, score_column, config, risk_config,
         pending_exits = []
         if day < last:
             today = grouped.get(int(panel.dates[day]), pd.DataFrame())
-            retained = set(today[
-                today.daily_rank <= config.retention_top_k
-            ].symbol) if len(today) else set()
+            event_symbols = set()
             for symbol in sorted(executor.positions):
                 if any(order.side == "sell" and order.symbol == symbol
                        for order in executor.orders):
                     continue
-                reason = exit_reason(exits.signal(day, symbol), symbol, retained)
+                reason = exits.signal(day, symbol)
                 if reason:
+                    event_symbols.add(symbol)
                     pending_exits.append((symbol, reason))
+            if rank_exit_mode == "buffer":
+                retained = set(today[
+                    today.daily_rank <= config.retention_top_k
+                ].symbol) if len(today) else set()
+                for symbol in sorted(set(executor.positions)-event_symbols):
+                    reason = exit_reason(None, symbol, retained)
+                    if reason:
+                        pending_exits.append((symbol, reason))
+            elif rank_exit_mode == "dropout":
+                if max_rank_replacements_per_day is None:
+                    raise ValueError("dropout mode requires replacement limit")
+                for symbol in dropout_rank_exits(
+                        executor.positions, today,
+                        max_rank_replacements_per_day,
+                        blocked=event_symbols):
+                    pending_exits.append((symbol, "RANK_DROPOUT"))
+            else:
+                raise ValueError("unknown rank_exit_mode")
 
     curve = executor.curve_frame()
     fills = executor.fills_frame()
@@ -195,7 +243,7 @@ def run_rank_portfolio(panel, scores, score_column, config, risk_config,
     benchmark_start = float(panel.benchmark_close[first-1])
     benchmark_end = float(panel.benchmark_close[last])
     result = {
-        "experiment": score_column,
+        "experiment": experiment_name or score_column,
         "start": int(panel.dates[first]), "end": int(panel.dates[last]),
         "return_pct": float((capital[-1]/initial-1)*100),
         "benchmark_return_pct": float(

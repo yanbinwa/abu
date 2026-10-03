@@ -11,7 +11,7 @@ from abupy.AlphaBu.ABuAlpha158Lite import (
     ALPHA158_LITE_DIAGNOSTIC_HORIZONS, ALPHA158_LITE_FEATURES,
     Alpha158LiteConfig, Alpha158LiteExitEngine, Alpha158LiteFeatureEngine,
     Alpha158LiteModel,
-    load_alpha158_lite_config,
+    load_alpha158_lite_config, load_alpha158_lite_turnover_config,
 )
 from tests.test_vcp_strategy import make_vcp_panel
 from scripts.research_alpha158_lite_v1 import (
@@ -19,7 +19,7 @@ from scripts.research_alpha158_lite_v1 import (
     moving_block_mean_interval,
 )
 from scripts.backtest_alpha158_lite_v1 import (
-    exit_reason, fixed_path_cost_attribution, rank_frame,
+    dropout_rank_exits, exit_reason, fixed_path_cost_attribution, rank_frame,
 )
 
 
@@ -187,6 +187,28 @@ class Alpha158LiteTest(unittest.TestCase):
         self.assertAlmostEqual(result["total_friction_pct_initial"], 2.2)
         self.assertAlmostEqual(result["fixed_path_reference_return_pct"], 1.2)
         self.assertAlmostEqual(result["round_trip_turnover_multiple"], 1.05)
+
+    def test_dropout_replaces_only_worst_holding_with_better_candidate(self):
+        daily = pd.DataFrame({
+            "symbol": ["new", "held_good", "held_bad"],
+            "daily_rank": [1, 2, 30],
+        })
+        result = dropout_rank_exits(
+            {"held_good", "held_bad"}, daily, maximum=1)
+        self.assertEqual(result, ["held_bad"])
+        blocked = dropout_rank_exits(
+            {"held_good", "held_bad"}, daily, maximum=1,
+            blocked={"held_bad"})
+        self.assertEqual(blocked, ["held_good"])
+
+    def test_turnover_config_matches_frozen_source_hash(self):
+        root = Path(__file__).resolve().parents[1]
+        source = load_alpha158_lite_config(
+            root/"configs/selection/alpha158_lite_v1.json")
+        turnover = load_alpha158_lite_turnover_config(
+            root/"configs/selection/alpha158_lite_turnover_v2.json")
+        self.assertEqual(turnover.source_config_sha256, source.sha256)
+        self.assertEqual(turnover.max_rank_replacements_per_day, 1)
 
 
 if __name__ == "__main__":
