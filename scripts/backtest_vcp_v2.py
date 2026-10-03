@@ -37,6 +37,8 @@ def main():
     parser.add_argument("--slippage-bps", type=float, default=25.0)
     parser.add_argument("--continuous", action="store_true",
                         help="also run one unreset path spanning all requested years")
+    parser.add_argument("--continuous-only", action="store_true",
+                        help="run only unreset paths spanning all requested years")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     core = load_vcp_core_config(ROOT / "configs/selection/vcp_core_v1.json")
@@ -49,28 +51,31 @@ def main():
         end_date=max(args.years) * 10000 + 1231,
     )
     rows = []
-    for year in args.years:
+    if not args.continuous_only:
+        for year in args.years:
+            for experiment in args.experiments:
+                result, curve, fills, decisions, exits = run_vcp_backtest(
+                    panel, year, experiment, args.slippage_bps,
+                    core, attention, risk)
+                rows.append(result)
+                directory = args.output_dir / "{}_{}".format(experiment, year)
+                directory.mkdir(parents=True, exist_ok=True)
+                curve.to_csv(directory / "daily_nav.csv", index=False)
+                fills.to_csv(directory / "fills.csv", index=False)
+                pd.DataFrame(exits).to_csv(directory / "exit_reasons.csv", index=False)
+                with (directory / "risk_decisions.jsonl").open("w") as output:
+                    for decision in decisions:
+                        output.write(json.dumps(asdict(decision), ensure_ascii=False) + "\n")
+                print(experiment, year, "return", round(result["return_pct"], 3),
+                      "drawdown", round(result["max_drawdown_pct"], 3), flush=True)
+    if args.continuous or args.continuous_only:
         for experiment in args.experiments:
-            result, curve, fills, decisions, exits = run_vcp_backtest(
-                panel, year, experiment, args.slippage_bps,
-                core, attention, risk)
-            rows.append(result)
-            directory = args.output_dir / "{}_{}".format(experiment, year)
-            directory.mkdir(parents=True, exist_ok=True)
-            curve.to_csv(directory / "daily_nav.csv", index=False)
-            fills.to_csv(directory / "fills.csv", index=False)
-            pd.DataFrame(exits).to_csv(directory / "exit_reasons.csv", index=False)
-            with (directory / "risk_decisions.jsonl").open("w") as output:
-                for decision in decisions:
-                    output.write(json.dumps(asdict(decision), ensure_ascii=False) + "\n")
-            print(experiment, year, "return", round(result["return_pct"], 3),
-                  "drawdown", round(result["max_drawdown_pct"], 3), flush=True)
-    if args.continuous:
-        for experiment in args.experiments:
+            audit = {}
             result, curve, fills, decisions, exits = run_vcp_backtest(
                 panel, None, experiment, args.slippage_bps, core, attention, risk,
                 start_date=min(args.years) * 10000 + 101,
                 end_date=max(args.years) * 10000 + 1231,
+                audit=audit,
             )
             rows.append(result)
             directory = args.output_dir / (experiment + "_continuous")
@@ -78,13 +83,27 @@ def main():
             curve.to_csv(directory / "daily_nav.csv", index=False)
             fills.to_csv(directory / "fills.csv", index=False)
             pd.DataFrame(exits).to_csv(directory / "exit_reasons.csv", index=False)
+            for name in ("intents", "orders", "reservations", "position_events",
+                         "unexit_positions"):
+                records = audit[name]
+                if records and hasattr(records[0], "__dataclass_fields__"):
+                    records = [asdict(item) for item in records]
+                pd.DataFrame(records).to_csv(directory / (name + ".csv"), index=False)
+            with (directory / "intents.jsonl").open("w") as output:
+                for intent in audit["intents"]:
+                    output.write(json.dumps(asdict(intent), ensure_ascii=False) + "\n")
             with (directory / "risk_decisions.jsonl").open("w") as output:
                 for decision in decisions:
                     output.write(json.dumps(asdict(decision), ensure_ascii=False) + "\n")
+            print(experiment, "continuous", "return",
+                  round(result["return_pct"], 3), "drawdown",
+                  round(result["max_drawdown_pct"], 3), flush=True)
     pd.DataFrame(rows).to_csv(args.output_dir / "results.csv", index=False)
     manifest = {
         "engine": "vcp_v2", "years": args.years,
         "experiments": args.experiments, "slippage_bps": args.slippage_bps,
+        "continuous": args.continuous or args.continuous_only,
+        "continuous_only": args.continuous_only,
         "core_config": asdict(core), "core_config_sha256": core.sha256,
         "attention_config": asdict(attention),
         "attention_config_sha256": attention.sha256,

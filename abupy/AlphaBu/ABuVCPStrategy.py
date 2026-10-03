@@ -412,7 +412,7 @@ VCP_EXPERIMENTS = {
 def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                      slippage_bps=25.0, core_config=None,
                      attention_config=None, risk_config=None,
-                     start_date=None, end_date=None):
+                     start_date=None, end_date=None, audit=None):
     """Run a C/D/E/F VCP experiment through the common executor."""
     if experiment not in VCP_EXPERIMENTS:
         raise ValueError("unknown VCP experiment")
@@ -445,8 +445,10 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
     entry_intent_by_symbol = {}
     decision_rows = []
     exit_reasons = []
+    all_intents = []
 
     pending_intents = strategy.generate_intents(first - 1, variant)
+    all_intents.extend(pending_intents)
     pending_exits = []
     for day in range(first, last + 1):
         signal_day = day - 1
@@ -521,6 +523,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                 if reason:
                     pending_exits.append((symbol, reason))
             pending_intents = strategy.generate_intents(day, variant)
+            all_intents.extend(pending_intents)
 
     curve = executor.curve_frame()
     fills = executor.fills_frame()
@@ -549,4 +552,16 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
         "attention_config_sha256": strategy.attention.sha256,
         "risk_config_sha256": risk.config.sha256,
     }
+    if audit is not None:
+        audit.update({
+            "intents": list(all_intents),
+            "orders": list(executor.order_history),
+            "reservations": list(executor.reservation_history),
+            "position_events": list(executor.position_events),
+            "risk_decisions": list(decision_rows),
+            "unexit_positions": [
+                {"symbol": symbol, **position.__dict__}
+                for symbol, position in sorted(executor.positions.items())
+            ],
+        })
     return result, curve, fills, decision_rows, exit_reasons

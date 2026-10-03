@@ -61,7 +61,9 @@ class PortfolioExecutor(object):
         self.reserved_cash = 0.0
         self.positions = {}
         self.orders = []
+        self.order_history = []
         self.reservations = {}
+        self.reservation_history = []
         self.fills = []
         self.position_events = []
         self.curve = []
@@ -112,7 +114,7 @@ class PortfolioExecutor(object):
             fees = sum(self._fees(quantity, order.max_buy_price_raw, "buy"))
             reserved = quantity * order.max_buy_price_raw + fees
             if reserved > self.available_cash + 1e-9:
-                return None, Reservation(
+                rejection = Reservation(
                     reservation_id=make_record_id("reservation", order_id),
                     intent_id=intent.intent_id, reserved_cash=0.0,
                     reserved_risk=0.0, reserved_industry_risk=0.0,
@@ -120,6 +122,8 @@ class PortfolioExecutor(object):
                     expires_on=int(valid_session), decision="rejected",
                     reason_codes=("INSUFFICIENT_CASH_RESERVATION",),
                 )
+                self.reservation_history.append(rejection)
+                return None, rejection
             self.reserved_cash += reserved
         reservation = Reservation(
             reservation_id=make_record_id("reservation", order_id),
@@ -131,7 +135,9 @@ class PortfolioExecutor(object):
             decision="approved", reason_codes=(),
         )
         self.orders.append(order)
+        self.order_history.append(order)
         self.reservations[order.order_id] = reservation
+        self.reservation_history.append(reservation)
         return order, reservation
 
     def _release(self, order):
@@ -428,3 +434,12 @@ class PortfolioExecutor(object):
 
     def fills_frame(self):
         return pd.DataFrame([fill.__dict__ for fill in self.fills])
+
+    def orders_frame(self):
+        return pd.DataFrame([order.__dict__ for order in self.order_history])
+
+    def reservations_frame(self):
+        return pd.DataFrame([item.__dict__ for item in self.reservation_history])
+
+    def position_events_frame(self):
+        return pd.DataFrame([item.__dict__ for item in self.position_events])

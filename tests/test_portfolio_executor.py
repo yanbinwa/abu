@@ -72,6 +72,8 @@ class PortfolioExecutorTest(unittest.TestCase):
         self.assertLessEqual(row["liquidation_nav_5_limits"],
                              row["liquidation_nav_3_limits"])
         self.assertEqual(executor.reserved_cash, 0)
+        self.assertEqual(len(executor.orders_frame()), 1)
+        self.assertEqual(len(executor.reservations_frame()), 1)
 
     def test_different_future_open_does_not_change_approved_quantity(self):
         first = make_executor()
@@ -119,6 +121,8 @@ class PortfolioExecutorTest(unittest.TestCase):
         self.assertEqual(reservation.decision, "rejected")
         self.assertEqual(reservation.reason_codes,
                          ("INSUFFICIENT_CASH_RESERVATION",))
+        self.assertEqual(len(executor.orders_frame()), 0)
+        self.assertEqual(len(executor.reservations_frame()), 1)
 
     def test_buy_expires_and_releases_cash(self):
         executor = make_executor()
@@ -144,6 +148,7 @@ class PortfolioExecutorTest(unittest.TestCase):
         executor.process_open(2)
         self.assertAlmostEqual(executor.cash - cash_before, 10.0)
         self.assertEqual(executor.positions["sz000001"].quantity, 110)
+        self.assertEqual(len(executor.position_events_frame()), 2)
         self.assertAlmostEqual(executor.positions["sz000001"].initial_stop_raw,
                                stop_before / 1.1)
         self.assertEqual(executor.positions["sz000001"].initial_r_cash_frozen,

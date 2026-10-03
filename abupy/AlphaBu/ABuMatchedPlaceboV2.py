@@ -29,11 +29,17 @@ class MatchedPlaceboV2(object):
         self.config = config or PlaceboConfig()
         self.date_index = {int(date): position
                            for position, date in enumerate(panel.dates)}
+        self._pool_cache = {}
+        self._feature_cache = {}
+        self._eligible_matrix = panel.signal_eligible(
+            self.config.min_history,
+            unknown_st_policy=self.config.unknown_st_policy,
+        )
 
-    def matching_pool(self, intent: TradeIntent):
-        """Build a pool using signal-day and earlier observations only."""
-        day = self.date_index[int(intent.signal_asof)]
-        target = self.panel.symbol_index[intent.symbol]
+    def _features_for_day(self, day):
+        cached = self._feature_cache.get(day)
+        if cached is not None:
+            return cached
         start_liq = max(0, day - self.config.lookback_liquidity + 1)
         start_beta = max(0, day - self.config.lookback_beta + 1)
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -55,19 +61,34 @@ class MatchedPlaceboV2(object):
                     (stocks - np.nanmean(stocks, axis=0)) * market_centered[:, None],
                     axis=0,
                 ) / denominator
-        cap = self.panel.market_cap[day]
-        industry = self.panel.industry[day]
-        eligible = self.panel.signal_eligible(
-            self.config.min_history,
-            unknown_st_policy=self.config.unknown_st_policy,
-        )[day].copy()
+        eligible = self._eligible_matrix[day].copy()
         eligible &= np.isfinite(price) & (price > 1)
         eligible &= np.isfinite(liquidity) & (liquidity > 0)
         eligible &= np.isfinite(volatility)
+        result = (price, liquidity, volatility, beta,
+                  self.panel.market_cap[day], self.panel.industry[day], eligible)
+        self._feature_cache[day] = result
+        return result
+
+    def matching_pool(self, intent: TradeIntent):
+        """Build a pool using signal-day and earlier observations only."""
+        cache_key = (intent.intent_id, int(intent.signal_asof), intent.symbol,
+                     self.config.pool_size, self.config.min_history,
+                     self.config.unknown_st_policy)
+        cached = self._pool_cache.get(cache_key)
+        if cached is not None:
+            return cached.copy()
+        day = self.date_index[int(intent.signal_asof)]
+        target = self.panel.symbol_index[intent.symbol]
+        price, liquidity, volatility, beta, cap, industry, eligible = \
+            self._features_for_day(day)
+        eligible = eligible.copy()
         eligible[target] = False
         candidates = np.flatnonzero(eligible)
         if len(candidates) == 0:
-            return np.array([], dtype=np.int32)
+            result = np.array([], dtype=np.int32)
+            self._pool_cache[cache_key] = result
+            return result.copy()
         target_industry = industry[target]
         if target_industry >= 0:
             same = candidates[industry[candidates] == target_industry]
@@ -102,7 +123,9 @@ class MatchedPlaceboV2(object):
             distance, used, out=np.full_like(distance, np.inf), where=used > 0
         )
         order = np.lexsort((candidates, distance))
-        return candidates[order[:self.config.pool_size]].astype(np.int32)
+        result = candidates[order[:self.config.pool_size]].astype(np.int32)
+        self._pool_cache[cache_key] = result
+        return result.copy()
 
     def substitute_intents(self, intents, seed=None, rebuild=None):
         rng = np.random.default_rng(self.config.seed if seed is None else seed)
@@ -160,6 +183,7 @@ class MatchedPlaceboV2(object):
         executor = PortfolioExecutor(
             self.panel, execution_config or ExecutionConfig()
         )
+        substitutes_by_id = {item.intent_id: item for item in substitutes}
         active = {}
         pending_exits = []
         risk_decisions = []
@@ -187,8 +211,7 @@ class MatchedPlaceboV2(object):
             fills = executor.process_open(day)
             for fill in fills:
                 if fill.side == "buy" and fill.status == "filled":
-                    source = next(item for item in substitutes
-                                  if item.intent_id == fill.intent_id)
+                    source = substitutes_by_id[fill.intent_id]
                     active[fill.symbol] = {
                         "intent_id": source.intent_id,
                         "strategy_id": source.strategy_id,

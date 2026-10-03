@@ -80,9 +80,13 @@ def main():
     parser.add_argument("--start-date", type=int, default=20200101)
     parser.add_argument("--end-date", type=int, default=20261002)
     parser.add_argument("--replicates", type=int, default=1000)
+    parser.add_argument("--replicate-start", type=int, default=0)
+    parser.add_argument("--replicate-end", type=int,
+                        help="exclusive replicate id; defaults to --replicates")
     parser.add_argument("--seed", type=int, default=20261002)
     parser.add_argument("--pool-size", type=int, default=50)
     parser.add_argument("--slippage-bps", type=float, default=25.0)
+    parser.add_argument("--max-positions", type=int, default=10)
     parser.add_argument("--actual-return-pct", type=float)
     parser.add_argument("--approval-mode", choices=("fixed", "b1", "full"),
                         default="full")
@@ -92,6 +96,12 @@ def main():
     args = parser.parse_args()
     if args.replicates <= 0:
         raise ValueError("replicates must be positive")
+    replicate_end = (args.replicates if args.replicate_end is None
+                     else args.replicate_end)
+    if args.replicate_start < 0 or replicate_end <= args.replicate_start:
+        raise ValueError("invalid replicate range")
+    if replicate_end > args.replicates:
+        raise ValueError("replicate end exceeds total replicates")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     distribution_path = args.output_dir / "placebo_distribution.csv"
@@ -111,7 +121,8 @@ def main():
         pool_size=args.pool_size, replicates=args.replicates, seed=args.seed
     )
     runner = MatchedPlaceboV2(panel, config)
-    execution = ExecutionConfig(slippage_bps=args.slippage_bps)
+    execution = ExecutionConfig(slippage_bps=args.slippage_bps,
+                                max_positions=args.max_positions)
     is_vcp = bool(intents) and all(
         intent.r_definition_version == "vcp_structure_or_2atr_v1"
         for intent in intents)
@@ -140,7 +151,8 @@ def main():
             return b1_engine.approve(executor, intent, day, entry_day, requested)
     else:
         approve = None
-    for replicate in range(args.replicates):
+    expected = replicate_end - args.replicate_start
+    for replicate in range(args.replicate_start, replicate_end):
         if replicate in completed:
             continue
         row = runner.run_distribution(
@@ -152,7 +164,11 @@ def main():
         existing = existing.drop_duplicates("replicate", keep="last").sort_values(
             "replicate").reset_index(drop=True)
         _atomic_csv(existing, distribution_path)
-        print("completed {}/{}".format(len(existing), args.replicates), flush=True)
+        completed_in_range = int(existing.replicate.between(
+            args.replicate_start, replicate_end-1).sum())
+        print("completed {}/{} in range [{}:{})".format(
+            completed_in_range, expected, args.replicate_start, replicate_end),
+            flush=True)
 
     missing = Counter(field for intent in intents for field in intent.missing_fields)
     summary = summarize_placebos(existing, args.actual_return_pct)
@@ -161,9 +177,11 @@ def main():
         "seed": args.seed,
         "pool_size": args.pool_size,
         "slippage_bps": args.slippage_bps,
+        "max_positions": args.max_positions,
         "approval_mode": args.approval_mode,
         "event_exit": args.event_exit,
         "intent_count": len(intents),
+        "replicate_range": [args.replicate_start, replicate_end],
         "missing_field_counts": dict(sorted(missing.items())),
         "signal_start": int(panel.dates[0]),
         "signal_end": int(panel.dates[-1]),
