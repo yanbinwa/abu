@@ -54,14 +54,15 @@
 ## 5. 交易结构
 
 - 已闭合交易：137笔
-- 胜率：28.47%
+- 成交价口径胜率（未分配现金分红）：28.47%
+- 完整现金流口径胜率（包含持仓期现金分红）：29.93%
 - 平均盈利：+14.96%
 - 平均亏损：-5.09%
 - 成本后 Profit Factor：1.061
 - 成本前参考价 Profit Factor：1.257
 - 前5笔盈利占全部正收益：48.94%
 
-退出归因：
+退出归因（原统计口径，不含持仓期现金分红）：
 
 | 原因 | 笔数 | 胜率 | 合计盈亏 |
 |---|---:|---:|---:|
@@ -70,6 +71,8 @@
 | 跟踪止损 | 58 | 67.2% | +154,244元 |
 
 策略依靠少数能够进入跟踪止损阶段的趋势交易覆盖大量初始止损，收益集中度仍然偏高。
+
+逐笔 K 线复盘进一步把持仓期 `4,786.25` 元现金分红分配回对应交易。完整现金流口径下，初始止损、停滞退出和移动止损分别贡献 `-139,311.18` 元、`-3,875.87` 元和 `+157,550.34` 元，合计 `+14,363.28` 元，与账户终值严格一致。该修正只影响逐笔归因和胜率展示，不改变组合净值、收益率或准入结论。
 
 ## 6. 匹配型 placebo
 
@@ -137,3 +140,19 @@
 - `git diff --check`：通过
 - 所有实验每日 `capital = cash + stocks` 最大绝对误差低于 `5e-10` 元
 - 所有实验现金余额为正，最大持仓10只，期末持仓为0，滞价估值为0
+
+## 11. 逐笔 K 线复盘
+
+主候选的 137 笔交易已生成逐笔 K 线图和交互式 HTML 复盘页面。页面支持按股票、退出原因和盈亏筛选，并可使用下拉框、上一笔/下一笔按钮或方向键切换交易。每张图包含买卖成交点、持有区间、突破位、初始止损、成交量、买入依据、退出原因、费用、滑点、现金分红、净盈亏和 R 倍数。
+
+- HTML 索引：`/Users/wjy/abu/backtests/vcp_optimization_v2_20261003/trade_visualization/index.html`
+- 逐笔归因：`/Users/wjy/abu/backtests/vcp_optimization_v2_20261003/trade_visualization/trades_visualized.csv`
+- K 线图目录：`/Users/wjy/abu/backtests/vcp_optimization_v2_20261003/trade_visualization/charts/`
+
+重新生成：
+
+```bash
+.venv/bin/python scripts/visualize_vcp_trades.py \
+  --backtest-dir /Users/wjy/abu/backtests/vcp_optimization_v2_20261003/h_residual_stop_trailing_stagnation_continuous \
+  --output-dir /Users/wjy/abu/backtests/vcp_optimization_v2_20261003/trade_visualization
+```

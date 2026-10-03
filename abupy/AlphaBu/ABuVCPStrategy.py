@@ -128,10 +128,11 @@ class VCPStrategy(object):
         self.residual = residual or VCPResidualConfig()
         self._breadth_denominator = None
 
-    def _base_components(self, day):
+    def _base_components(self, day, allow_terminal=False):
         c = self.core
         count = len(self.panel.symbols)
-        if day < c.min_history or day + 1 >= len(self.panel.dates):
+        if day < c.min_history or (day + 1 >= len(self.panel.dates) and
+                                   not allow_terminal):
             return np.zeros(count, dtype=bool), {}
         eligible = self.panel.signal_eligible(
             c.min_history, unknown_st_policy="exclude")[day].copy()
@@ -270,10 +271,10 @@ class VCPStrategy(object):
             usable &= score > 0
         return score, usable
 
-    def generate_intents(self, day, variant="core"):
+    def generate_intents(self, day, variant="core", allow_terminal=False):
         if variant not in self.VARIANTS:
             raise ValueError("unknown VCP variant")
-        eligible, data = self._base_components(day)
+        eligible, data = self._base_components(day, allow_terminal=allow_terminal)
         attention = None
         residual = None
         attention_variants = ("core_common", "amount_common", "attention_common")
@@ -334,7 +335,7 @@ class VCPStrategy(object):
             if stop_adjusted >= adjusted:
                 continue
             raw_atr = float(self.panel.atr21[day, column]) * factor
-            next_day = day + 1
+            next_day = min(day + 1, len(self.panel.dates) - 1)
             listing_session = (6 if self.panel.list_date[column] < int(self.panel.dates[0])
                                else int(self.panel.universe_mask[:next_day+1, column].sum()))
             rule = price_limit_rule(

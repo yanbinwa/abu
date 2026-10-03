@@ -99,6 +99,29 @@ class VCPStrategyTest(unittest.TestCase):
         # Structure low 9.6 and max price 12.1 imply risk > 8% of 10.5.
         self.assertEqual(VCPStrategy(panel).generate_intents(day, "core"), [])
 
+    def test_terminal_close_requires_explicit_live_mode(self):
+        panel, _ = make_vcp_panel()
+        day = len(panel.dates) - 1
+        panel.high[day-80:day-20] = 12.0
+        panel.low[day-80:day-20] = 8.0
+        panel.high[day-20:day] = 10.0
+        panel.low[day-20:day] = 9.6
+        panel.close[day] = 10.5
+        panel.exec_close[day] = 10.5
+        panel.high[day] = 10.6
+        panel.low[day] = 10.4
+        panel.ma120[:] = 9.0
+        for row in range(day-19, day+1):
+            panel.ma120[row] = 8.8 + (row-(day-19))*0.01
+        panel.ma60[:] = 9.5
+        panel.market_ma200[:] = 90
+        panel.atr21[:] = 0.5
+        panel.atr21[day-1] = 0.1
+        panel.atr21[day] = 0.2
+        self.assertEqual(VCPStrategy(panel).generate_intents(day, "core"), [])
+        self.assertEqual(len(VCPStrategy(panel).generate_intents(
+            day, "core", allow_terminal=True)), 2)
+
     def test_residual_variant_requires_positive_past_residual(self):
         panel, day = make_vcp_panel()
         start, end = day - 251, day - 20

@@ -35,6 +35,24 @@ def default_outbox():
     return runtime / "outbox"
 
 
+def queue_message(content, outbox=None, target=None):
+    """Atomically enqueue one message and return its id."""
+    content = str(content).strip()
+    if not content:
+        raise ValueError("策略内容为空")
+    outbox = Path(outbox) if outbox is not None else default_outbox()
+    identifier = f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
+    job = {"id": identifier, "content": content, "createdAt": time.time()}
+    if target:
+        job["target"] = target
+    outbox.mkdir(parents=True, exist_ok=True)
+    temporary = outbox / f".{identifier}.tmp"
+    destination = outbox / f"{identifier}.json"
+    temporary.write_text(json.dumps(job, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(temporary, destination)
+    return identifier
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="将策略日报加入企业微信智能机器人发送队列")
     source = parser.add_mutually_exclusive_group(required=True)
@@ -45,18 +63,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     content = args.file.read_text(encoding="utf-8") if args.file else sys.stdin.read()
-    content = content.strip()
-    if not content:
-        parser.error("策略内容为空")
-    identifier = f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
-    job = {"id": identifier, "content": content, "createdAt": time.time()}
-    if args.target:
-        job["target"] = args.target
-    args.outbox.mkdir(parents=True, exist_ok=True)
-    temporary = args.outbox / f".{identifier}.tmp"
-    destination = args.outbox / f"{identifier}.json"
-    temporary.write_text(json.dumps(job, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temporary, destination)
+    try:
+        identifier = queue_message(content, args.outbox, args.target)
+    except ValueError as error:
+        parser.error(str(error))
     print(f"已加入企业微信发送队列：{identifier}")
     return 0
 

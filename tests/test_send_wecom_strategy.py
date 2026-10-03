@@ -1,11 +1,14 @@
 import io
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import mock
 
 from scripts.send_wecom_strategy import (
     DeliveryError, main, send_text, validate_content, validate_webhook,
 )
+from scripts.queue_wecom_strategy import queue_message
 
 
 WEBHOOK = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-secret"
@@ -58,6 +61,18 @@ class SendWecomStrategyTest(unittest.TestCase):
                 mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             self.assertEqual(0, main(["--stdin", "--dry-run"]))
         self.assertEqual("日报内容\n", out.getvalue())
+
+    def test_queue_message_is_atomic_and_keeps_target(self):
+        with TemporaryDirectory() as directory:
+            identifier = queue_message(
+                "模拟盘买入提醒", Path(directory), target="user-1")
+            paths = list(Path(directory).glob("*.json"))
+            self.assertEqual(len(paths), 1)
+            payload = json.loads(paths[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload["id"], identifier)
+            self.assertEqual(payload["content"], "模拟盘买入提醒")
+            self.assertEqual(payload["target"], "user-1")
+            self.assertFalse(list(Path(directory).glob("*.tmp")))
 
 
 if __name__ == "__main__":
