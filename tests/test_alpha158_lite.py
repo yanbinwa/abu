@@ -18,7 +18,9 @@ from scripts.research_alpha158_lite_v1 import (
     daily_rank_ic, daily_selection_uplift, factor_diagnostics,
     moving_block_mean_interval,
 )
-from scripts.backtest_alpha158_lite_v1 import exit_reason, rank_frame
+from scripts.backtest_alpha158_lite_v1 import (
+    exit_reason, fixed_path_cost_attribution, rank_frame,
+)
 
 
 def config(**updates):
@@ -173,6 +175,18 @@ class Alpha158LiteTest(unittest.TestCase):
         self.assertEqual(exit_reason(None, "c", {"a", "b"}), "RANK_EXIT")
         self.assertEqual(exit_reason("INITIAL_STOP", "b", {"a", "b"}),
                          "INITIAL_STOP")
+
+    def test_fixed_path_cost_attribution_keeps_trade_path(self):
+        fills = pd.DataFrame({
+            "status": ["filled", "filled"], "quantity": [100, 100],
+            "reference_price": [10., 11.], "commission": [5., 5.],
+            "transfer_fee": [1., 1.], "stamp_tax": [0., 5.],
+            "slippage_cost": [2.5, 2.5],
+        })
+        result = fixed_path_cost_attribution(fills, -1., 1000.)
+        self.assertAlmostEqual(result["total_friction_pct_initial"], 2.2)
+        self.assertAlmostEqual(result["fixed_path_reference_return_pct"], 1.2)
+        self.assertAlmostEqual(result["round_trip_turnover_multiple"], 1.05)
 
 
 if __name__ == "__main__":

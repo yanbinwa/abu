@@ -28,6 +28,9 @@ from abupy.AlphaBu.ABuPortfolioRisk import (  # noqa: E402
 )
 from abupy.AlphaBu.ABuSelectionPanelV2 import SelectionPanelV2  # noqa: E402
 from abupy.AlphaBu.ABuTradeIntent import TradeIntent, make_record_id  # noqa: E402
+from abupy.AlphaBu.ABuTrialRegistry import (  # noqa: E402
+    read_trial_registry, register_trial,
+)
 from scripts.backtest_vcp_context_v1 import _trade_metrics  # noqa: E402
 
 
@@ -48,6 +51,29 @@ def exit_reason(event_reason, symbol, retained_symbols):
     if symbol not in retained_symbols:
         return "RANK_EXIT"
     return None
+
+
+def fixed_path_cost_attribution(fills, net_return_pct, initial_cash):
+    """Remove observed fill frictions without changing quantities or path."""
+    filled = fills[fills.status.eq("filled")].copy()
+    commission = float(filled.commission.sum())
+    transfer = float(filled.transfer_fee.sum())
+    stamp = float(filled.stamp_tax.sum())
+    slippage = float(filled.slippage_cost.sum())
+    friction = commission+transfer+stamp+slippage
+    reference_notional = float(
+        (filled.quantity*filled.reference_price).sum())
+    return {
+        "commission_pct_initial": commission/initial_cash*100,
+        "transfer_fee_pct_initial": transfer/initial_cash*100,
+        "stamp_tax_pct_initial": stamp/initial_cash*100,
+        "slippage_pct_initial": slippage/initial_cash*100,
+        "total_friction_pct_initial": friction/initial_cash*100,
+        "fixed_path_reference_return_pct": (
+            float(net_return_pct)+friction/initial_cash*100),
+        "round_trip_turnover_multiple": (
+            reference_notional/(2*initial_cash)),
+    }
 
 
 def _seed_marks(executor, panel, first):
@@ -197,6 +223,8 @@ def run_rank_portfolio(panel, scores, score_column, config, risk_config,
         "slippage_bps": float(config.label_slippage_bps),
         **trades,
     }
+    result.update(fixed_path_cost_attribution(
+        fills, result["return_pct"], initial))
     audit = {
         "curve": curve, "fills": fills, "decisions": decisions,
         "exits": exit_rows, "selection": selection_rows,
@@ -290,6 +318,28 @@ def main():
     (args.output_dir/"comparison.json").write_text(
         json.dumps(comparison, ensure_ascii=False, indent=2)+"\n",
         encoding="utf-8")
+    registry = args.output_dir.parent/"trial_registry.jsonl"
+    trial_id = "alpha158-lite-v1-portfolio-observed-20261003"
+    observed = {
+        "results": rows, "comparison": comparison,
+        "execution": {
+            "slippage_bps": config.label_slippage_bps,
+            "mode": "pit_corrected",
+            "max_positions": config.entry_top_k,
+            "risk_config_sha256": risk_config.sha256,
+        },
+    }
+    existing = [item for item in read_trial_registry(registry)
+                if item["trial_id"] == trial_id]
+    if not existing:
+        register_trial(
+            registry, trial_id,
+            "Observed common-ledger portfolio result for the frozen "
+            "Alpha158-lite v1 ranking experiment.",
+            {"strategy": asdict(config),
+             "risk_config_sha256": risk_config.sha256,
+             "score_columns": ["baseline_score", "alpha_score"]},
+            status="OBSERVED", observed_metrics=observed)
     print(json.dumps(comparison, ensure_ascii=False, indent=2))
 
 
