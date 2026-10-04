@@ -86,6 +86,22 @@ class MinuteBarStoreTest(unittest.TestCase):
             self.assertEqual(result["manifest_sha256"],
                              payload["manifest_sha256"])
 
+    def test_raw_provider_response_is_content_addressed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MinuteBarStore(directory)
+            raw = __import__("pandas").DataFrame({
+                "时间": ["2026-10-09 09:31:00"], "成交量": [100]})
+            first = store.append_raw_response(
+                raw, "fixture", "sh600000", 1,
+                "2026-10-09T09:31:01+08:00",
+                "2026-10-09T09:31:02+08:00")
+            second = store.append_raw_response(
+                raw, "fixture", "sh600000", 1,
+                "2026-10-09T09:31:01+08:00",
+                "2026-10-09T09:31:02+08:00")
+            self.assertEqual(first, second)
+            self.assertTrue(Path(first["path"]).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

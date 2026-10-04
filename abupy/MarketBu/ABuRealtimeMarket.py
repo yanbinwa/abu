@@ -185,6 +185,7 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
         self._data_fresh = False
         self._fields_valid = False
         self._reason_codes = ()
+        self._symbol_health = {}
 
     @abstractmethod
     def snapshot(self, symbols=None, strict=True):
@@ -223,7 +224,11 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
             code = getattr(error, "reason_code", None)
             self._reason_codes = (code or "PROVIDER_ERROR",)
 
-    def health(self):
+    def health(self, symbol=None):
+        if symbol is not None:
+            normalized = normalize_cn_symbol(symbol)
+            with self._health_lock:
+                return self._symbol_health.get(normalized)
         now = _as_shanghai_timestamp(self._now())
         with self._health_lock:
             age = ((now - self._last_success_at).total_seconds()
@@ -281,7 +286,8 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
 
     def __init__(self, ak_module=None, retries=3, retry_wait=1.0,
                  fallback=True, stale_after_seconds=30.0, now=None,
-                 spot_volume_multiplier=100.0, minute_volume_multiplier=100.0):
+                 spot_volume_multiplier=100.0, minute_volume_multiplier=100.0,
+                 raw_archive=None):
         super(AKShareRealtimeMarketData, self).__init__(
             source="akshare", stale_after_seconds=stale_after_seconds, now=now)
         if retries <= 0 or retry_wait < 0:
@@ -292,6 +298,7 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
         self.fallback = bool(fallback)
         self.spot_volume_multiplier = float(spot_volume_multiplier)
         self.minute_volume_multiplier = float(minute_volume_multiplier)
+        self.raw_archive = raw_archive
 
     @property
     def ak(self):
@@ -505,6 +512,12 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
                     end_date=str(end), period=period, adjust=adjust))
                 provider = "akshare_eastmoney_minute"
                 received_at = _as_shanghai_timestamp(self._now())
+                if self.raw_archive is not None:
+                    self.raw_archive(
+                        raw=raw, provider=provider, symbol=normalized_symbol,
+                        interval_minutes=int(period),
+                        request_started_at=request_started_at,
+                        received_at=received_at)
                 frame = self._normalize_minute_bars(
                     raw, normalized_symbol, period, request_started_at,
                     received_at,
@@ -519,6 +532,12 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
                     symbol=normalized_symbol, period=period, adjust=adjust))
                 provider = "akshare_sina_minute"
                 received_at = _as_shanghai_timestamp(self._now())
+                if self.raw_archive is not None:
+                    self.raw_archive(
+                        raw=raw, provider=provider, symbol=normalized_symbol,
+                        interval_minutes=int(period),
+                        request_started_at=request_started_at,
+                        received_at=received_at)
                 frame = self._normalize_minute_bars(
                     raw, normalized_symbol, period, request_started_at,
                     received_at,
@@ -542,9 +561,15 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
             self._success(
                 provider, started, len(frame), warning=warning,
                 data_fresh=fresh, fields_valid=True, reason_codes=reasons)
+            symbol_health = self.health()
+            with self._health_lock:
+                self._symbol_health[normalized_symbol] = symbol_health
             return frame
         except Exception as error:
             self._failure(error, started)
+            symbol_health = self.health()
+            with self._health_lock:
+                self._symbol_health[normalized_symbol] = symbol_health
             if isinstance(error, RealtimeMarketDataError):
                 raise
             raise RealtimeMarketDataError(

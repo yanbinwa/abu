@@ -13,6 +13,10 @@ from .ABuPriceLimit import limit_prices, price_limit_rule
 from .ABuPortfolioExecutor import ExecutionConfig, PortfolioExecutor
 from .ABuPortfolioRisk import PortfolioRiskEngine, RiskConfig
 from .ABuTradeIntent import TradeIntent, make_record_id
+from .ABuIntradayExecution import (
+    IntradayExecutionConfig, apply_intraday_outcome,
+    instruction_from_order, simulate_intraday_order,
+)
 
 
 @dataclass(frozen=True)
@@ -554,10 +558,20 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                      residual_config=None,
                      start_date=None, end_date=None, audit=None,
                      sync_dynamic_stops=False, position_add_policy=None,
-                     position_add_execution_mode="executable"):
+                     position_add_execution_mode="executable",
+                     execution_policy_id="D0", minute_bars=None,
+                     intraday_execution_config=None, upper_limits=None):
     """Run a C/D/E/F VCP experiment through the common executor."""
     if experiment not in VCP_EXPERIMENTS:
         raise ValueError("unknown VCP experiment")
+    if execution_policy_id not in ("D0", "M1", "M2"):
+        raise ValueError("execution_policy_id must be D0, M1 or M2")
+    if execution_policy_id != "D0" and minute_bars is None:
+        raise ValueError("minute_bars is required for M1/M2 backtests")
+    intraday_execution_config = (
+        intraday_execution_config or
+        IntradayExecutionConfig(slippage_bps=slippage_bps))
+    upper_limits = upper_limits or {}
     variant, use_risk, exit_profile = VCP_EXPERIMENTS[experiment]
     if start_date is not None or end_date is not None:
         if start_date is None or end_date is None:
@@ -595,6 +609,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
     decision_rows = []
     exit_reasons = []
     all_intents = []
+    intraday_order_events = []
 
     pending_intents = strategy.generate_intents(first - 1, variant)
     all_intents.extend(pending_intents)
@@ -642,7 +657,42 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                     )
         for intent in candidates:
             intent_lookup[intent.intent_id] = intent
-        fills = executor.process_open(day)
+        if execution_policy_id == "D0":
+            fills = executor.process_open(day)
+        else:
+            fills = list(executor.process_open_sells(day))
+            trade_date = int(panel.dates[day])
+            for order in list(executor.pending_buy_orders(day)):
+                if callable(minute_bars):
+                    bars = minute_bars(trade_date, order.symbol)
+                else:
+                    bars = minute_bars.get((trade_date, order.symbol), ())
+                bars = tuple(bars or ())
+                if not bars:
+                    fills.append(executor.cancel_buy_order(
+                        order, day, "NO_MINUTE_DATA", status="expired",
+                        execution_policy_id=execution_policy_id))
+                    continue
+                instruction = instruction_from_order(
+                    order, trade_date, execution_policy_id,
+                    intraday_execution_config,
+                    reservation_id=(executor.reservations.get(order.order_id).
+                                    reservation_id
+                                    if order.order_id in executor.reservations else ""))
+                upper = upper_limits.get((trade_date, order.symbol),
+                                         upper_limits.get(order.symbol))
+                action_symbols = {
+                    panel.symbols[item["symbol"]]
+                    for item in panel.corporate_actions.get(day, [])
+                }
+                outcome = simulate_intraday_order(
+                    instruction, order, bars,
+                    config=intraday_execution_config,
+                    upper_limit_raw=upper,
+                    corporate_action=order.symbol in action_symbols)
+                intraday_order_events.extend(outcome.events)
+                fills.append(apply_intraday_outcome(
+                    executor, order, day, outcome))
         for fill in fills:
             if fill.status != "filled":
                 continue
@@ -726,6 +776,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
         "residual_config_sha256": strategy.residual.sha256,
         "risk_config_sha256": risk.config.sha256,
         "dynamic_stop_sync": bool(sync_dynamic_stops),
+        "execution_policy_id": execution_policy_id,
     }
     if audit is not None:
         audit.update({
@@ -748,5 +799,6 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
             "position_lots": list(executor.position_ledger.lots.values()),
             "lot_dispositions": list(executor.position_ledger.lot_dispositions),
             "logical_trades": list(executor.position_ledger.logical_trades.values()),
+            "intraday_order_events": list(intraday_order_events),
         })
     return result, curve, fills, decision_rows, exit_reasons

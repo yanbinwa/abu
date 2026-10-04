@@ -74,6 +74,38 @@ class MinuteBarStore(object):
                 "interval={}".format(interval) /
                 "symbol={}".format(symbol))
 
+    def append_raw_response(self, raw, provider, symbol, interval_minutes,
+                            request_started_at, received_at):
+        """Archive one provider response immutably before normalization."""
+        if hasattr(raw, "to_json"):
+            records = json.loads(raw.to_json(
+                orient="records", date_format="iso", force_ascii=False))
+        else:
+            records = raw
+        received = _as_shanghai_timestamp(received_at)
+        payload = {
+            "schema_version": "minute_raw_response_v1",
+            "provider": str(provider), "symbol": str(symbol),
+            "interval_minutes": int(interval_minutes),
+            "request_started_at": _as_shanghai_timestamp(
+                request_started_at).isoformat(),
+            "received_at": received.isoformat(),
+            "records": records,
+        }
+        content = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False) + "\n"
+        digest = _sha256_text(content)
+        path = (self.root / "raw" /
+                "trading_date={}".format(received.strftime("%Y%m%d")) /
+                "provider={}".format(provider) /
+                "interval={}".format(int(interval_minutes)) /
+                "symbol={}".format(symbol) /
+                "{}.json".format(digest))
+        if not path.exists():
+            self._atomic_text(path, content)
+        return {"path": str(path), "sha256": digest}
+
     @contextlib.contextmanager
     def _locked(self, partition):
         partition.mkdir(parents=True, exist_ok=True)

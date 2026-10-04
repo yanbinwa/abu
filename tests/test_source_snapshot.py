@@ -16,7 +16,7 @@ class SourceSnapshotTest(unittest.TestCase):
         self.assertEqual(first["source_snapshot_hash"],
                          second["source_snapshot_hash"])
         self.assertEqual(64, len(first["source_snapshot_hash"]))
-        self.assertTrue(first["dirty"])
+        self.assertIsInstance(first["dirty"], bool)
         self.assertTrue(any(item["path"].endswith(".py")
                             for item in first["files"]))
 

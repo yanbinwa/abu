@@ -1,0 +1,15 @@
+{
+  "calibration_minimum_effective_days": 10,
+  "qualification_minimum_consecutive_effective_days": 20,
+  "status": "CALIBRATION_REQUIRED",
+  "thresholds": {
+    "max_duplicate_rate": null,
+    "max_fallback_rate": null,
+    "max_p95_latency_ms": null,
+    "max_p99_latency_ms": null,
+    "max_stale_rate": null,
+    "min_fresh_bar_availability": null,
+    "min_recovery_rate": null,
+    "min_window_coverage": null
+  }
+}

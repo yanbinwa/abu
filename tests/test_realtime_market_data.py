@@ -108,6 +108,8 @@ class AKShareRealtimeMarketDataTest(unittest.TestCase):
         self.assertEqual(
             ["akshare_eastmoney_minute", "akshare_eastmoney_minute"],
             result.source.tolist())
+        self.assertIsNotNone(adapter.health("sh600000"))
+        self.assertTrue(adapter.health("sh600000").data_present)
         fake.stock_zh_a_hist_min_em.assert_called_once_with(
             symbol="600000", start_date="2026-10-09 09:30:00",
             end_date="2026-10-09 10:02:30", period="1", adjust="")
@@ -155,6 +157,27 @@ class AKShareRealtimeMarketDataTest(unittest.TestCase):
         health = adapter.health()
         self.assertFalse(health.data_present)
         self.assertIn("NO_DATA", health.reason_codes)
+        self.assertIn("NO_DATA", adapter.health("sh600000").reason_codes)
+
+    def test_minute_raw_response_archive_runs_before_normalization(self):
+        fake = mock.Mock()
+        raw = pd.DataFrame({
+            "时间": ["2026-10-09 10:00:00"],
+            "开盘": [10.0], "收盘": [10.0], "最高": [10.1],
+            "最低": [9.9], "成交量": [100], "成交额": [1000],
+        })
+        fake.stock_zh_a_hist_min_em.return_value = raw
+        archived = []
+        adapter = AKShareRealtimeMarketData(
+            ak_module=fake, retries=1, now=lambda: NOW,
+            raw_archive=lambda **payload: archived.append(payload))
+        adapter.minute_bars(
+            "600000", start="2026-10-09 09:30:00",
+            end="2026-10-09 10:01:00")
+        self.assertEqual(1, len(archived))
+        self.assertIs(archived[0]["raw"], raw)
+        self.assertEqual("akshare_eastmoney_minute",
+                         archived[0]["provider"])
 
     def test_minute_event_rejects_invalid_ohlc_and_reversed_clock(self):
         common = dict(

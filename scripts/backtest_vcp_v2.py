@@ -20,6 +20,7 @@ from abupy.AlphaBu.ABuVCPStrategy import (  # noqa: E402
     VCP_EXPERIMENTS, load_vcp_attention_config, load_vcp_core_config,
     load_vcp_residual_config, run_vcp_backtest,
 )
+from abupy.MarketBu.ABuMinuteBarStore import MinuteBarStore  # noqa: E402
 
 
 def main():
@@ -41,7 +42,13 @@ def main():
                         help="run only unreset paths spanning all requested years")
     parser.add_argument("--sync-dynamic-stops", action="store_true",
                         help="publish executable trailing stops to risk sizing")
+    parser.add_argument("--execution-policy", choices=("D0", "M1", "M2"),
+                        default="D0")
+    parser.add_argument("--minute-store", type=Path)
+    parser.add_argument("--minute-source")
     args = parser.parse_args()
+    if args.execution_policy != "D0" and args.minute_store is None:
+        parser.error("--minute-store is required for M1/M2")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     core = load_vcp_core_config(ROOT / "configs/selection/vcp_core_v1.json")
     attention = load_vcp_attention_config(
@@ -54,6 +61,11 @@ def main():
         start_date=min(args.years) * 10000 - 10000,
         end_date=max(args.years) * 10000 + 1231,
     )
+    minute_store = (MinuteBarStore(args.minute_store)
+                    if args.minute_store is not None else None)
+    minute_loader = (None if minute_store is None else
+                     lambda date, symbol: minute_store.read(
+                         symbol, date, 1, source=args.minute_source))
     rows = []
     if not args.continuous_only:
         for year in args.years:
@@ -61,7 +73,9 @@ def main():
                 result, curve, fills, decisions, exits = run_vcp_backtest(
                     panel, year, experiment, args.slippage_bps,
                     core, attention, risk, residual,
-                    sync_dynamic_stops=args.sync_dynamic_stops)
+                    sync_dynamic_stops=args.sync_dynamic_stops,
+                    execution_policy_id=args.execution_policy,
+                    minute_bars=minute_loader)
                 rows.append(result)
                 directory = args.output_dir / "{}_{}".format(experiment, year)
                 directory.mkdir(parents=True, exist_ok=True)
@@ -83,6 +97,8 @@ def main():
                 end_date=max(args.years) * 10000 + 1231,
                 audit=audit,
                 sync_dynamic_stops=args.sync_dynamic_stops,
+                execution_policy_id=args.execution_policy,
+                minute_bars=minute_loader,
             )
             rows.append(result)
             directory = args.output_dir / (experiment + "_continuous")
@@ -112,6 +128,10 @@ def main():
         "continuous": args.continuous or args.continuous_only,
         "continuous_only": args.continuous_only,
         "dynamic_stop_sync": bool(args.sync_dynamic_stops),
+        "execution_policy_id": args.execution_policy,
+        "minute_store": (str(args.minute_store)
+                         if args.minute_store is not None else None),
+        "minute_source": args.minute_source,
         "core_config": asdict(core), "core_config_sha256": core.sha256,
         "attention_config": asdict(attention),
         "attention_config_sha256": attention.sha256,

@@ -250,6 +250,9 @@ class IntradayOrderMachine(object):
     def finalize(self):
         if self.state not in TERMINAL_STATES:
             self._transition("EXPIRED", "EXECUTION_WINDOW_EXPIRED", None)
+        return self.outcome()
+
+    def outcome(self):
         candidate = self._candidate
         return IntradayExecutionOutcome(
             instruction=self.instruction, state=self.state,
@@ -273,7 +276,8 @@ class IntradayOrderMachine(object):
 
 
 def simulate_intraday_order(instruction, order, bars, config=None,
-                            upper_limit_raw=None, corporate_action=False):
+                            upper_limit_raw=None, corporate_action=False,
+                            finalize=True):
     machine = IntradayOrderMachine(
         instruction, order, config=config, upper_limit_raw=upper_limit_raw,
         corporate_action=corporate_action)
@@ -281,7 +285,7 @@ def simulate_intraday_order(instruction, order, bars, config=None,
             _as_shanghai_timestamp(item.available_at),
             _as_shanghai_timestamp(item.bar_end), item.revision)):
         machine.on_bar(event)
-    return machine.finalize()
+    return machine.finalize() if finalize else machine.outcome()
 
 
 def apply_intraday_outcome(executor, order, day, outcome):
