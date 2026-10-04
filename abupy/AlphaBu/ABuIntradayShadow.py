@@ -136,7 +136,14 @@ class IntradayShadowRunner(object):
             self.adapter.raw_archive = self.minute_store.append_raw_response
         self._now = now or (lambda: pd.Timestamp.now(tz="Asia/Shanghai"))
 
-    def poll_once(self):
+    def poll_once(self, prefetched_health=None):
+        """Advance decisions using either one shared fetch or local fetching.
+
+        ``prefetched_health`` lets a session collector request every symbol once
+        and feed the same immutable bar snapshot to M1 and M2.  ``None`` keeps
+        the original standalone behaviour for callers that do not run a shared
+        collector.
+        """
         state = read_shadow_state(self.state_directory)
         config = IntradayExecutionConfig(**state["config"])
         now = pd.Timestamp(self._now())
@@ -150,25 +157,33 @@ class IntradayShadowRunner(object):
             if order.order_id in state["outcomes"] and \
                     state["outcomes"][order.order_id]["state"] in TERMINAL_STATES:
                 continue
-            date = str(order.valid_session)
-            day = "{}-{}-{}".format(date[:4], date[4:6], date[6:])
-            try:
-                frame = self.adapter.minute_bars(
-                    order.symbol, period="1",
-                    start=day + " 09:30:00", end=now.strftime("%Y-%m-%d %H:%M:%S"),
-                    adjust="")
-                events = minute_events_from_frame(frame)
-                self.minute_store.append(events)
-                health_rows.append({
-                    "symbol": order.symbol, "status": "OK",
-                    "health": self.adapter.health().to_dict(),
-                })
-            except RealtimeMarketDataError as error:
-                health_rows.append({
-                    "symbol": order.symbol, "status": "ERROR",
-                    "error": str(error),
-                    "health": self.adapter.health().to_dict(),
-                })
+            if prefetched_health is None:
+                date = str(order.valid_session)
+                day = "{}-{}-{}".format(date[:4], date[4:6], date[6:])
+                try:
+                    frame = self.adapter.minute_bars(
+                        order.symbol, period="1",
+                        start=day + " 09:30:00",
+                        end=now.strftime("%Y-%m-%d %H:%M:%S"), adjust="")
+                    events = minute_events_from_frame(frame)
+                    self.minute_store.append(events)
+                    health_rows.append({
+                        "symbol": order.symbol, "status": "OK",
+                        "health": self.adapter.health().to_dict(),
+                    })
+                except RealtimeMarketDataError as error:
+                    health_rows.append({
+                        "symbol": order.symbol, "status": "ERROR",
+                        "error": str(error),
+                        "health": self.adapter.health().to_dict(),
+                    })
+            else:
+                health_rows.append(prefetched_health.get(order.symbol, {
+                    "symbol": order.symbol,
+                    "status": "ERROR",
+                    "error": "shared collector returned no health record",
+                    "health": None,
+                }))
             bars = self.minute_store.read(
                 order.symbol, order.valid_session, 1, as_of=now)
             instruction_payload = frozen["instruction"]

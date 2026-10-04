@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from abupy.MarketBu.ABuMinuteBarStore import MinuteBarStore
 from abupy.MarketBu.ABuRealtimeMarket import MinuteBarEvent
 
@@ -10,14 +12,12 @@ from abupy.MarketBu.ABuRealtimeMarket import MinuteBarEvent
 def event(end="09:31:00", available="09:31:02", close=10.1,
           volume=1000, amount=None):
     date = "2026-10-09T"
-    hour, minute, second = end.split(":")
-    start_minute = int(minute) - 1
-    start = "{}{}:{:02d}:{}+08:00".format(
-        date, hour, start_minute, second)
+    end_at = pd.Timestamp(date + end + "+08:00")
+    start = (end_at - pd.Timedelta(minutes=1)).isoformat()
     return MinuteBarEvent(
         symbol="sh600000", interval_minutes=1,
         source_timestamp=date + end + "+08:00",
-        bar_start=start, bar_end=date + end + "+08:00",
+        bar_start=start, bar_end=end_at.isoformat(),
         request_started_at=date + available + "+08:00",
         received_at=date + available + "+08:00",
         available_at=date + available + "+08:00",
@@ -73,6 +73,28 @@ class MinuteBarStoreTest(unittest.TestCase):
             audit = store.audit("sh600000", "20261009", source="fixture")
             self.assertFalse(audit["healthy"])
             self.assertEqual(1, audit["gap_count"])
+
+    def test_audit_classifies_lunch_and_closing_auction_as_scheduled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MinuteBarStore(directory)
+            store.append([
+                event("11:30:00", available="11:30:02"),
+                event("13:01:00", available="13:01:02"),
+            ])
+            audit = store.audit("sh600000", "20261009", source="fixture")
+            self.assertTrue(audit["healthy"])
+            self.assertEqual(0, audit["gap_count"])
+            self.assertEqual(1, audit["scheduled_gap_count"])
+        with tempfile.TemporaryDirectory() as directory:
+            store = MinuteBarStore(directory)
+            store.append([
+                event("14:57:00", available="14:57:02"),
+                event("15:00:00", available="15:00:02"),
+            ])
+            audit = store.audit("sh600000", "20261009", source="fixture")
+            self.assertTrue(audit["healthy"])
+            self.assertEqual(0, audit["gap_count"])
+            self.assertEqual(1, audit["scheduled_gap_count"])
 
     def test_current_pointer_names_verified_manifest(self):
         with tempfile.TemporaryDirectory() as directory:

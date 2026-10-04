@@ -289,13 +289,23 @@ class MinuteBarStore(object):
         ends = [_as_shanghai_timestamp(item.bar_end) for item in complete]
         duplicates = len(ends) - len(set(ends))
         gaps = []
+        scheduled_gaps = []
         for left, right in zip(sorted(set(ends)), sorted(set(ends))[1:]):
             delta = (right - left).total_seconds() / 60.0
-            if delta > interval_minutes and not (
-                    left.strftime("%H:%M") == "11:30" and
-                    right.strftime("%H:%M") == "13:01"):
-                gaps.append({"after": left.isoformat(),
-                             "before": right.isoformat(), "minutes": delta})
+            if delta <= interval_minutes:
+                continue
+            item = {"after": left.isoformat(),
+                    "before": right.isoformat(), "minutes": delta}
+            scheduled = (
+                (left.strftime("%H:%M") == "11:30" and
+                 right.strftime("%H:%M") == "13:01") or
+                (left.strftime("%H:%M") == "14:57" and
+                 right.strftime("%H:%M") == "15:00")
+            )
+            if scheduled:
+                scheduled_gaps.append(item)
+            else:
+                gaps.append(item)
         return {
             "schema_version": "minute_bar_audit_v1",
             "symbol": symbol,
@@ -306,6 +316,8 @@ class MinuteBarStore(object):
             "duplicate_bar_end_count": duplicates,
             "gap_count": len(gaps),
             "gaps": gaps,
+            "scheduled_gap_count": len(scheduled_gaps),
+            "scheduled_gaps": scheduled_gaps,
             "amount_missing_count": sum(
                 item.amount_raw is None for item in events),
             "volume_missing_count": sum(

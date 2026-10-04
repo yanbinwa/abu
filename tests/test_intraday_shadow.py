@@ -44,11 +44,13 @@ def frame(events):
 class FakeAdapter(object):
     def __init__(self, events):
         self.events = events
+        self.calls = 0
 
     def minute_bars(self, *args, **kwargs):
+        self.calls += 1
         return frame(self.events)
 
-    def health(self):
+    def health(self, symbol=None):
         class Health(object):
             def to_dict(self):
                 return {"connected": True, "data_fresh": True}
@@ -90,6 +92,28 @@ class IntradayShadowTest(unittest.TestCase):
             path.write_text(__import__("json").dumps(state), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "frozen inputs"):
                 read_shadow_state(directory)
+
+    def test_prefetched_bars_do_not_request_provider_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_dir = Path(directory) / "state"
+            store = MinuteBarStore(Path(directory) / "bars")
+            order = approved()
+            events = [bar("09:35"), bar("09:37", opening=10.2)]
+            store.append(events)
+            initialize_shadow_state(
+                state_dir, [order], "M1", "c" * 64,
+                created_at="2025-01-03T09:00:00+08:00")
+            adapter = FakeAdapter(events)
+            state = IntradayShadowRunner(
+                state_dir, adapter, store,
+                now=lambda: pd.Timestamp(
+                    "2025-01-03T10:31:30+08:00")).poll_once(
+                        prefetched_health={order.symbol: {
+                            "symbol": order.symbol, "status": "OK",
+                            "health": {"data_fresh": True},
+                        }})
+            self.assertEqual(0, adapter.calls)
+            self.assertEqual("FILLED", state["outcomes"][order.order_id]["state"])
 
     def test_quality_gate_needs_every_day_and_every_threshold(self):
         thresholds = ShadowQualityThresholds(
