@@ -130,6 +130,7 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
     policy = Alpha158LiteLowTurnoverPolicy(policy_config)
     entry_intents = {}
     decisions, exit_rows, selection_rows = [], [], []
+    risk_state_rows, risk_position_rows = [], []
     pending_exits, pending_entries = [], []
 
     for day in range(first, last+1):
@@ -249,6 +250,21 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             decisions.extend(item[3] for item in add_results
                              if item[3] is not None)
 
+        risk_equity, risk_gross, open_risk, industries, same_day = \
+            risk._state(executor, day)
+        risk_state_rows.append({
+            "date": int(panel.dates[day]), "equity": risk_equity,
+            "gross_exposure_cash": risk_gross,
+            "open_risk_cash": open_risk,
+            "same_day_new_risk_cash": same_day,
+            "industry_open_risk_cash": dict(industries),
+        })
+        for row in risk._portfolio(executor, day):
+            if row.get("pending", False):
+                continue
+            risk_position_rows.append({
+                "date": int(panel.dates[day]), **row})
+
     curve = executor.curve_frame()
     fills = executor.fills_frame()
     initial = executor.config.initial_cash
@@ -312,6 +328,8 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "position_lots": list(executor.position_ledger.lots.values()),
         "lot_dispositions": list(executor.position_ledger.lot_dispositions),
         "logical_trades": list(executor.position_ledger.logical_trades.values()),
+        "risk_states_daily": risk_state_rows,
+        "risk_positions_daily": risk_position_rows,
     }
     return result, audit
 

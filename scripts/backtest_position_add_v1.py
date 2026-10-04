@@ -90,6 +90,8 @@ def _write_audit(directory, result, curve, fills, audit):
         "position_lots": "position_lots.csv",
         "lot_dispositions": "lot_dispositions.csv",
         "logical_trades": "logical_trades.csv",
+        "risk_states_daily": "risk_states_daily.csv",
+        "risk_positions_daily": "risk_positions_daily.csv",
     }
     for key, name in mapping.items():
         records = audit.get(key, [])

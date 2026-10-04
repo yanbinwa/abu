@@ -115,6 +115,7 @@ class IsolatedSleeveDisposition:
     exit_fees_cash: float
     dividend_cash: float
     realized_pnl_cash: float
+    exit_reason: str = "BASE_EXIT"
 
 
 def replay_isolated_add_sleeve(panel, proposals, base_dispositions,
@@ -324,6 +325,377 @@ def replay_isolated_add_sleeve(panel, proposals, base_dispositions,
         "curve": pd.DataFrame(curve),
         "entries": entries,
         "dispositions": dispositions,
+        "rejections": pd.DataFrame(rejections),
+        "open_lots": tuple(active.values()),
+    }
+
+
+def replay_residual_add_overlay(panel, proposals, base_dispositions,
+                                base_curve, base_orders,
+                                base_risk_positions, execution_config,
+                                risk_engine, start_date=None, end_date=None):
+    """Replay fixed-quantity ADD orders behind a frozen base portfolio.
+
+    Base orders always have priority.  ADD approval uses only close-time cash
+    remaining after the next-session base reservations and the portfolio's
+    residual gross, symbol, industry, open-risk, capacity and stress budgets.
+    Quantity is frozen with the proposal's maximum buy price before the next
+    open is observed.  The returned combined curve preserves the base path.
+    """
+    dates = np.asarray(panel.dates, dtype=int)
+    date_index = {int(value): index for index, value in enumerate(dates)}
+    base_curve = pd.DataFrame(base_curve).set_index("date", drop=False)
+    first_date = int(base_curve.date.min()) if start_date is None else int(start_date)
+    last_date = int(base_curve.date.max()) if end_date is None else int(end_date)
+    first, last = date_index[first_date], date_index[last_date]
+    config = risk_engine.config
+    helper = PortfolioExecutor(panel, replace(
+        execution_config, initial_cash=float(base_curve.iloc[0].capital)))
+
+    def value(item, name):
+        return getattr(item, name) if hasattr(item, name) else item[name]
+
+    def fees(quantity, price, side):
+        gross = quantity*price
+        return (max(gross*execution_config.broker_rate,
+                    execution_config.min_commission) +
+                gross*execution_config.transfer_rate +
+                (gross*execution_config.sell_stamp_rate
+                 if side == "sell" else 0.0))
+
+    exits = {}
+    for item in base_dispositions:
+        exits[value(item, "trade_id")] = max(
+            int(value(item, "fill_date")),
+            exits.get(value(item, "trade_id"), 0))
+    proposals_by_signal = {}
+    for proposal in proposals:
+        if proposal.trade_id in exits:
+            proposals_by_signal.setdefault(int(proposal.signal_asof), []).append(
+                proposal)
+    for rows in proposals_by_signal.values():
+        rows.sort(key=lambda item: (-item.priority, item.symbol,
+                                    item.proposal_id))
+
+    base_reservations = {}
+    base_new_risk = {}
+    for order in base_orders:
+        if value(order, "side") != "buy" or value(order, "position_effect") == "INCREASE":
+            continue
+        created = int(value(order, "created_asof"))
+        price = float(value(order, "max_buy_price_raw"))
+        quantity = int(value(order, "quantity"))
+        base_reservations[created] = base_reservations.get(created, 0.0) + \
+            quantity*price+fees(quantity, price, "buy")
+        base_new_risk[created] = base_new_risk.get(created, 0.0) + float(
+            value(order, "planned_initial_r_cash"))
+
+    positions_by_date = {}
+    for row in base_risk_positions:
+        record = dict(row) if isinstance(row, dict) else asdict(row)
+        positions_by_date.setdefault(int(record.pop("date")), []).append(record)
+
+    overlay_cash_delta = 0.0
+    active = {}
+    approved_by_date = {}
+    entries, dispositions, approvals, rejections, curve = [], [], [], [], []
+    pending_cash, pending_stock, dividends_by_lot = {}, {}, {}
+
+    def mark(lot, day):
+        column = panel.symbol_index[lot.symbol]
+        close = float(panel.exec_close[day, column])
+        if np.isfinite(close) and close > 0:
+            return close
+        prior = np.asarray(panel.exec_close[:day+1, column], dtype=float)
+        valid = prior[np.isfinite(prior) & (prior > 0)]
+        return float(valid[-1]) if len(valid) else 0.0
+
+    def add_rows(day):
+        rows = []
+        for lot in active.values():
+            column = panel.symbol_index[lot.symbol]
+            price = mark(lot, day)
+            initial_r_per_share = (lot.risk_cash_frozen/lot.quantity
+                                   if lot.quantity else 0.0)
+            stop = lot.entry_price_raw-initial_r_per_share
+            rows.append({
+                "symbol": lot.symbol, "trade_id": lot.trade_id,
+                "quantity": lot.quantity,
+                "market_value": lot.quantity*price,
+                "industry": risk_engine._industry(day, column),
+                "beta": risk_engine.beta_for(day, column),
+                "open_risk": max(0.0, price-stop)*lot.quantity,
+                "initial_r_cash": lot.risk_cash_frozen,
+                "has_stop": True,
+                "limit_fraction": risk_engine._limit_fraction(day, column),
+                "pending": False, "is_add": True,
+                "latest_fill_date": lot.entry_date,
+            })
+        return rows
+
+    def close_lot(lot_id, day, reason):
+        nonlocal overlay_cash_delta
+        lot = active.get(lot_id)
+        if lot is None:
+            return
+        column = panel.symbol_index[lot.symbol]
+        opening = float(panel.exec_open[day, column])
+        if not np.isfinite(opening) or opening <= 0:
+            return
+        price = opening*(1-execution_config.slippage_bps/10000.0)
+        exit_fees = fees(lot.quantity, price, "sell")
+        proceeds = lot.quantity*price-exit_fees
+        overlay_cash_delta += proceeds
+        dividend = float(dividends_by_lot.pop(lot_id, 0.0))
+        dispositions.append(IsolatedSleeveDisposition(
+            lot_id=lot_id, trade_id=lot.trade_id,
+            exit_date=int(dates[day]), exit_price_raw=price,
+            quantity=lot.quantity, exit_fees_cash=exit_fees,
+            dividend_cash=dividend,
+            realized_pnl_cash=proceeds+dividend-lot.entry_cost_cash,
+            exit_reason=reason))
+        active.pop(lot_id)
+
+    for day in range(first, last+1):
+        date = int(dates[day])
+        overlay_cash_delta += float(pending_cash.pop(day, 0.0))
+        for lot_id, factor in pending_stock.pop(day, []):
+            lot = active.get(lot_id)
+            if lot is not None:
+                active[lot_id] = replace(
+                    lot, quantity=int(np.floor(lot.quantity*factor)))
+
+        base = base_curve.loc[date]
+        # If a base order consumed more cash than its conservative reservation,
+        # release ADD capital first. Latest ADD lots leave first.
+        for lot_id, _ in sorted(
+                active.items(), key=lambda item: (-item[1].entry_date,
+                                                  item[0])):
+            if float(base.cash)+overlay_cash_delta >= -1e-9:
+                break
+            close_lot(lot_id, day, "BASE_PRIORITY_CASH_RELEASE")
+
+        for lot_id, lot in sorted(list(active.items())):
+            if exits.get(lot.trade_id) == date:
+                close_lot(lot_id, day, "BASE_EXIT")
+
+        for item in approved_by_date.get(date, ()):
+            proposal, quantity = item["proposal"], int(item["quantity"])
+            column = panel.symbol_index[proposal.symbol]
+            opening = float(panel.exec_open[day, column])
+            reason = None
+            if (not panel.buy_tradable_mask[day, column] or
+                    not np.isfinite(opening) or opening <= 0):
+                reason = "NOT_BUY_TRADABLE"
+            else:
+                _, upper, _, _, _, _ = helper._limits(day, column)
+                if not can_buy_at_open(opening, upper):
+                    reason = "OPEN_AT_LIMIT_UP"
+            price = opening*(1+execution_config.slippage_bps/10000.0)
+            if reason is None and price > proposal.max_buy_price_raw+1e-12:
+                reason = "ABOVE_MAX_BUY_PRICE"
+            cost = quantity*price+fees(quantity, price, "buy")
+            if reason is None and cost > float(base.cash)+overlay_cash_delta+1e-9:
+                reason = "RESIDUAL_CASH_CHANGED"
+            if reason is not None:
+                rejections.append({"proposal_id": proposal.proposal_id,
+                                   "date": date, "stage": "execution",
+                                   "reason": reason})
+                continue
+            lot_id = make_record_id("residual-add-lot", proposal.proposal_id)
+            per_share_risk = max(
+                0.0, price-float(proposal.current_stop_raw_snapshot))
+            lot = IsolatedSleeveLot(
+                lot_id=lot_id, trade_id=proposal.trade_id,
+                proposal_id=proposal.proposal_id, symbol=proposal.symbol,
+                quantity=quantity, entry_date=date, entry_price_raw=price,
+                entry_fees_cash=fees(quantity, price, "buy"),
+                entry_cost_cash=cost,
+                risk_cash_frozen=per_share_risk*quantity)
+            active[lot_id] = lot
+            entries.append(lot)
+            overlay_cash_delta -= cost
+
+        for event in panel.corporate_actions.get(day, []):
+            symbol = panel.symbols[event["symbol"]]
+            for lot_id, lot in tuple(active.items()):
+                if lot.symbol != symbol:
+                    continue
+                if event["cash_per_share"] and event["cash_day"] is not None:
+                    amount = lot.quantity*float(event["cash_per_share"])
+                    pending_cash[event["cash_day"]] = \
+                        pending_cash.get(event["cash_day"], 0.0)+amount
+                    dividends_by_lot[lot_id] = \
+                        dividends_by_lot.get(lot_id, 0.0)+amount
+                if event["stock_per_share"] and event["stock_day"] is not None:
+                    pending_stock.setdefault(event["stock_day"], []).append(
+                        (lot_id, 1.0+float(event["stock_per_share"])))
+
+        add_market = sum(lot.quantity*mark(lot, day)
+                         for lot in active.values())
+        combined_cash = float(base.cash)+overlay_cash_delta
+        combined_stocks = float(base.stocks)+add_market
+        combined_capital = combined_cash+combined_stocks
+        curve.append({
+            "date": date, "cash": combined_cash,
+            "stocks": combined_stocks, "capital": combined_capital,
+            "exposure": (combined_stocks/combined_capital
+                         if combined_capital > 0 else np.nan),
+            "base_capital": float(base.capital),
+            "add_market_value": add_market,
+            "overlay_cash_delta": overlay_cash_delta,
+            "add_holdings": len(active),
+        })
+
+        if day >= last:
+            continue
+        base_rows = [dict(row) for row in positions_by_date.get(date, ())]
+        current_add_rows = add_rows(day)
+        all_rows = base_rows+current_add_rows
+        base_equity = float(base.capital)
+        equity = base_equity+overlay_cash_delta+add_market
+        gross = sum(float(row["market_value"]) for row in all_rows)
+        open_risk = sum(float(row["open_risk"]) for row in all_rows)
+        cash_available = max(
+            0.0, float(base.cash)+overlay_cash_delta-
+            base_reservations.get(date, 0.0))
+        same_day_risk = base_new_risk.get(date, 0.0)
+        reserved_add_cash = 0.0
+        reserved_add_risk = 0.0
+        pending_candidates = []
+        for proposal in proposals_by_signal.get(date, ()):
+            if exits[proposal.trade_id] <= int(proposal.valid_session):
+                rejections.append({"proposal_id": proposal.proposal_id,
+                                   "date": date, "stage": "approval",
+                                   "reason": "BASE_EXIT_NOT_AFTER_ADD"})
+                continue
+            column = panel.symbol_index[proposal.symbol]
+            max_price = float(proposal.max_buy_price_raw)
+            stop = float(proposal.current_stop_raw_snapshot)
+            per_share_risk = max_price-stop
+            if not np.isfinite(per_share_risk) or per_share_risk <= 0:
+                rejections.append({"proposal_id": proposal.proposal_id,
+                                   "date": date, "stage": "approval",
+                                   "reason": "NO_EXECUTABLE_INITIAL_R"})
+                continue
+            industry = risk_engine._industry(day, column)
+            existing_symbol = sum(
+                float(row["market_value"]) for row in all_rows+pending_candidates
+                if row["symbol"] == proposal.symbol)
+            industry_risk = sum(
+                float(row["open_risk"]) for row in all_rows+pending_candidates
+                if row["industry"] == industry)
+            start = max(0, day-19)
+            amount = np.asarray(panel.amount[start:day+1, column], dtype=float)
+            average_amount = (float(np.nanmean(amount))
+                              if np.isfinite(amount).any() else np.nan)
+            caps = {
+                "PROPOSAL_RISK": int(
+                    proposal.risk_budget_cash_cap/per_share_risk/100)*100,
+                "PROPOSAL_NOTIONAL": int(
+                    proposal.notional_cash_cap/max_price/100)*100,
+                "SYMBOL_WEIGHT": int(max(
+                    0.0, equity*config.max_symbol_weight-existing_symbol) /
+                    max_price/100)*100,
+                "GROSS_EXPOSURE": int(max(
+                    0.0, equity*config.max_gross_exposure-gross-
+                    sum(row["market_value"] for row in pending_candidates)) /
+                    max_price/100)*100,
+                "PORTFOLIO_OPEN_RISK": int(max(
+                    0.0, equity*config.portfolio_open_risk_fraction-open_risk-
+                    reserved_add_risk)/per_share_risk/100)*100,
+                "INDUSTRY_OPEN_RISK": int(max(
+                    0.0, equity*config.industry_open_risk_fraction-
+                    industry_risk)/per_share_risk/100)*100,
+                "SAME_DAY_NEW_RISK": int(max(
+                    0.0, equity*config.same_day_new_risk_fraction-
+                    same_day_risk-reserved_add_risk)/per_share_risk/100)*100,
+                "CAPACITY": (int(
+                    average_amount*config.max_amount_participation/
+                    max_price/100)*100 if np.isfinite(average_amount) else 0),
+                "CASH": int(max(
+                    0.0, cash_available-reserved_add_cash)/max_price/100)*100,
+            }
+            if proposal.quantity_cap_optional is not None:
+                caps["POLICY_QUANTITY"] = int(
+                    proposal.quantity_cap_optional)//100*100
+            quantity = min(caps.values())
+            while quantity >= 100:
+                maximum_cost = quantity*max_price+fees(
+                    quantity, max_price, "buy")
+                if maximum_cost <= cash_available-reserved_add_cash+1e-9:
+                    break
+                quantity -= 100
+            pre_stress_quantity = quantity
+            candidate = {
+                "symbol": proposal.symbol, "trade_id": proposal.trade_id,
+                "quantity": quantity,
+                "market_value": quantity*max_price,
+                "industry": industry,
+                "beta": risk_engine.beta_for(day, column),
+                "open_risk": quantity*per_share_risk,
+                "initial_r_cash": quantity*per_share_risk,
+                "has_stop": True,
+                "limit_fraction": risk_engine._limit_fraction(day, column),
+                "pending": True, "is_add": True,
+                "latest_fill_date": 0,
+            }
+            while quantity >= 100:
+                candidate["quantity"] = quantity
+                candidate["market_value"] = quantity*max_price
+                candidate["open_risk"] = quantity*per_share_risk
+                candidate["initial_r_cash"] = quantity*per_share_risk
+                losses = risk_engine._stress_from_rows(
+                    all_rows+pending_candidates+[candidate])
+                if max(losses.values(), default=0.0) <= \
+                        equity*config.max_stress_loss_fraction+1e-9:
+                    break
+                quantity -= 100
+            if quantity < 100:
+                if pre_stress_quantity >= 100:
+                    binding = ("STRESS_LOSS",)
+                else:
+                    minimum = min(caps.values())
+                    binding = tuple(sorted(
+                        name for name, cap in caps.items() if cap == minimum))
+                rejections.append({"proposal_id": proposal.proposal_id,
+                                   "date": date, "stage": "approval",
+                                   "reason": "NO_RESIDUAL_"+binding[0],
+                                   "binding_caps": binding})
+                continue
+            maximum_cost = quantity*max_price+fees(
+                quantity, max_price, "buy")
+            if maximum_cost > cash_available-reserved_add_cash+1e-9:
+                rejections.append({"proposal_id": proposal.proposal_id,
+                                   "date": date, "stage": "approval",
+                                   "reason": "NO_RESIDUAL_CASH_AFTER_FEES",
+                                   "binding_caps": ("CASH",)})
+                continue
+            candidate = dict(candidate)
+            candidate["quantity"] = quantity
+            candidate["market_value"] = quantity*max_price
+            candidate["open_risk"] = quantity*per_share_risk
+            candidate["initial_r_cash"] = quantity*per_share_risk
+            pending_candidates.append(candidate)
+            reserved_add_cash += maximum_cost
+            reserved_add_risk += quantity*per_share_risk
+            approved_by_date.setdefault(int(proposal.valid_session), []).append({
+                "proposal": proposal, "quantity": quantity})
+            approvals.append({
+                "proposal_id": proposal.proposal_id,
+                "signal_asof": date,
+                "valid_session": int(proposal.valid_session),
+                "symbol": proposal.symbol, "quantity": quantity,
+                "max_buy_price_raw": max_price,
+                "reserved_cash": maximum_cost,
+                "reserved_risk_cash": quantity*per_share_risk,
+                "base_cash_reserved": base_reservations.get(date, 0.0),
+                "quantity_caps": dict(caps),
+            })
+
+    return {
+        "curve": pd.DataFrame(curve), "entries": entries,
+        "dispositions": dispositions, "approvals": pd.DataFrame(approvals),
         "rejections": pd.DataFrame(rejections),
         "open_lots": tuple(active.values()),
     }
