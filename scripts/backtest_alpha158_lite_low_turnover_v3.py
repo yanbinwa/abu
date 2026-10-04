@@ -98,7 +98,8 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                      end_date, sync_dynamic_stops=False,
                      position_add_policy=None,
                      position_add_execution_mode="executable",
-                     initial_cash=1_000_000.0):
+                     initial_cash=1_000_000.0, review_overlay=None,
+                     scale_out_config=None):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -127,8 +128,12 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             execution_mode=position_add_execution_mode)
     features = Alpha158LiteFeatureEngine(panel, strategy_config)
     exits = Alpha158LiteExitEngine(panel, strategy_config)
+    scale_out = None
+    if scale_out_config is not None:
+        from abupy.AlphaBu.ABuScaleOutPolicy import RMultipleScaleOutPolicy
+        scale_out = RMultipleScaleOutPolicy(scale_out_config)
     policy = Alpha158LiteLowTurnoverPolicy(policy_config)
-    entry_intents = {}
+    entry_intents, exit_intents = {}, {}
     decisions, exit_rows, selection_rows = [], [], []
     risk_state_rows, risk_position_rows = [], []
     pending_exits, pending_entries = [], []
@@ -137,13 +142,17 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         signal_day = day-1
         if day > first:
             signal_date = int(panel.dates[signal_day])
-            for symbol, reason in pending_exits:
+            for symbol, reason, requested_quantity, position_effect in pending_exits:
                 position = executor.positions.get(symbol)
                 if position is None or any(
                         order.side == "sell" and order.symbol == symbol
                         for order in executor.orders):
                     continue
                 entry = entry_intents[symbol]
+                trades = executor.position_ledger.active_trades(symbol)
+                trade = trades[0] if len(trades) == 1 else None
+                quantity = (position.quantity if requested_quantity is None else
+                            min(int(requested_quantity), position.quantity))
                 sell = TradeIntent(
                     intent_id=make_record_id(
                         "alpha158-low-turnover-exit", signal_date,
@@ -151,16 +160,27 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                     strategy_id=entry.strategy_id, strategy_version="1",
                     signal_asof=signal_date, symbol=symbol, side="sell",
                     metadata={"exit_reason": reason},
+                    trade_id=(trade.trade_id if trade is not None else ""),
+                    allocation_id=(trade.allocation_id
+                                   if trade is not None else "GLOBAL"),
+                    position_effect=position_effect,
                 )
-                executor.approve_order(
-                    sell, position.quantity, int(panel.dates[day]))
+                order, _ = executor.approve_order(
+                    sell, quantity, int(panel.dates[day]))
+                if order is None and position_effect == "REDUCE" and \
+                        scale_out is not None:
+                    scale_out.record_cancel(symbol)
+                exit_intents[sell.intent_id] = sell
                 exit_rows.append({"date": signal_date, "symbol": symbol,
-                                  "reason": reason})
+                                  "reason": reason,
+                                  "position_effect": position_effect,
+                                  "quantity": quantity})
             held_or_ordered = set(executor.positions) | {
                 order.symbol for order in executor.orders
                 if order.side == "buy"}
             exiting = sum(symbol in executor.positions
-                          for symbol, _ in pending_exits)
+                          for symbol, _, _, effect in pending_exits
+                          if effect == "CLOSE")
             slots = max(
                 0, policy_config.target_positions-len(executor.positions)+exiting)
             for row in pending_entries:
@@ -192,21 +212,38 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         fills_today = executor.process_open(day)
         for fill in fills_today:
             if fill.status != "filled":
+                if (fill.side == "sell" and fill.position_effect == "REDUCE" and
+                        fill.status in ("rejected", "expired", "cancelled") and
+                        scale_out is not None):
+                    scale_out.record_cancel(fill.symbol)
                 continue
             if fill.side == "sell":
-                exits.remove(fill.symbol)
-                entry_intents.pop(fill.symbol, None)
+                reason = str(exit_intents[fill.intent_id].metadata.get(
+                    "exit_reason", ""))
+                if fill.position_effect == "REDUCE":
+                    if scale_out is not None:
+                        scale_out.record_fill(fill.symbol, reason, fill.quantity)
+                else:
+                    exits.remove(fill.symbol)
+                    entry_intents.pop(fill.symbol, None)
+                    if scale_out is not None:
+                        scale_out.remove(fill.symbol)
             else:
                 if fill.position_effect == "INCREASE":
+                    if scale_out is not None:
+                        scale_out.register_add(fill.symbol, fill.quantity)
                     continue
                 intent = entry_intents[fill.symbol]
                 exits.register_entry(intent, fill, day)
+                if scale_out is not None:
+                    scale_out.register_entry(fill.symbol, fill.quantity)
         executor.process_close(day)
 
         pending_exits, pending_entries = [], []
         if day >= last:
             continue
         event_symbols = set()
+        scale_out_candidates = []
         add_stop_overrides = {}
         for symbol in sorted(executor.positions):
             if any(order.side == "sell" and order.symbol == symbol
@@ -223,7 +260,9 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                 add_stop_overrides[symbol] = current_stop
             if reason:
                 event_symbols.add(symbol)
-                pending_exits.append((symbol, reason))
+                pending_exits.append((symbol, reason, None, "CLOSE"))
+            elif scale_out is not None:
+                scale_out_candidates.append(symbol)
         if (day-first) % policy_config.review_interval_sessions == 0:
             daily = grouped.get(int(panel.dates[day]), pd.DataFrame())
             holding_sessions = {
@@ -232,14 +271,33 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             rank_exits, entry_symbols = policy.review(
                 daily, executor.positions, holding_sessions,
                 blocked_exits=event_symbols)
-            pending_exits.extend((symbol, "PERSISTENT_RANK_EXIT")
+            if review_overlay is not None:
+                rank_exits, entry_symbols = review_overlay.filter_review(
+                    panel, executor, day, rank_exits, entry_symbols)
+            pending_exits.extend((symbol, "PERSISTENT_RANK_EXIT", None, "CLOSE")
                                  for symbol in rank_exits)
             lookup = {str(row.symbol): row._asdict()
                       for row in daily.itertuples(index=False)}
             pending_entries = [lookup[symbol] for symbol in entry_symbols
                                if symbol in lookup]
+        full_exit_symbols = {
+            symbol for symbol, _, _, effect in pending_exits if effect == "CLOSE"}
+        for symbol in scale_out_candidates:
+            if symbol in full_exit_symbols or symbol not in executor.positions:
+                continue
+            state = exits.states.get(symbol)
+            if state is None:
+                continue
+            decision = scale_out.evaluate(
+                symbol, float(panel.close[day, panel.symbol_index[symbol]]),
+                state, executor.positions[symbol].quantity)
+            if decision is not None:
+                event_symbols.add(symbol)
+                pending_exits.append((
+                    symbol, decision["reason"], decision["quantity"],
+                    decision["position_effect"]))
         if add_coordinator is not None:
-            blocked_symbols = {symbol for symbol, _ in pending_exits}
+            blocked_symbols = {symbol for symbol, _, _, _ in pending_exits}
             blocked_trades = {
                 trade.trade_id
                 for trade in executor.position_ledger.active_trades()
@@ -309,6 +367,8 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "pending_orders_end": int(len(executor.orders)),
         "slippage_bps": float(source_config.label_slippage_bps),
         "dynamic_stop_sync": bool(sync_dynamic_stops),
+        "scale_out_policy_id": (
+            scale_out.config.policy_id if scale_out is not None else "unified_exit"),
         **trades,
         **holding_session_statistics(fills, panel),
     }

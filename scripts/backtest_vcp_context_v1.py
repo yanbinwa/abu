@@ -141,14 +141,14 @@ def _trade_metrics(fills):
 
 
 def run_experiment(panel, shadow, experiment, risk_config, start_date, end_date,
-                   ranking_column=None):
+                   ranking_column=None, slippage_bps=25.0):
     dates = np.flatnonzero((panel.dates >= int(start_date)) &
                            (panel.dates <= int(end_date)))
     if not len(dates) or dates[0] == 0:
         raise ValueError("period has no prior signal date")
     first, last = int(dates[0]), int(dates[-1])
     executor = PortfolioExecutor(panel, ExecutionConfig(
-        slippage_bps=25.0, mode="pit_corrected", max_positions=10))
+        slippage_bps=slippage_bps, mode="pit_corrected", max_positions=10))
     previous = np.asarray(panel.exec_close[:first], dtype=float)
     for column in range(previous.shape[1]):
         valid = previous[:, column][np.isfinite(previous[:, column]) &

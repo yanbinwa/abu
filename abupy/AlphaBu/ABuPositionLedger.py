@@ -369,6 +369,10 @@ class PositionLedger(object):
             trade_id_value = self.resolve_trade_id(
                 order.symbol, order.target_trade_id)
             trade = self.logical_trades[trade_id_value]
+            if effect == "REDUCE":
+                if trade.status != "ACTIVE":
+                    raise ValueError("TARGET_TRADE_NOT_ACTIVE")
+                return trade_id_value
             if trade.status == "ACTIVE":
                 trade = self.transition(trade_id_value, "EXIT_REQUESTED")
             if trade.status == "EXIT_REQUESTED":
@@ -399,7 +403,7 @@ class PositionLedger(object):
             )
         elif order.side == "sell":
             self.release_sell_reservations(order.logical_order_id, status.upper())
-            if trade.status == "EXIT_PENDING":
+            if effect != "REDUCE" and trade.status == "EXIT_PENDING":
                 pending = tuple(item for item in trade.pending_exit_order_ids
                                 if item != order.logical_order_id)
                 self.transition(trade_id_value, "EXIT_ORDER_CANCELLED",

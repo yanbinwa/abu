@@ -52,6 +52,9 @@ class PositionLedgerAccountingTest(unittest.TestCase):
         self.assertAlmostEqual(sum(item.allocated_stamp_tax_cash
                                    for item in dispositions), fill.stamp_tax)
         self.assertEqual(executor.positions["sz000001"].quantity, 100)
+        self.assertEqual(
+            executor.position_ledger.logical_trades["trade-1"].status,
+            "ACTIVE")
         cash_from_fill = (fill.quantity * fill.fill_price_raw - fill.commission -
                           fill.transfer_fee - fill.stamp_tax)
         self.assertGreater(cash_from_fill, 0)

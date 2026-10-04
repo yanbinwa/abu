@@ -339,9 +339,16 @@ def rebuild_legacy_placebo_intent(original, symbol, day, panel):
 
 
 def run_legacy_v2_backtest(panel, strategy, year, mode="a2_pit_corrected",
-                           slippage_bps=25.0, risk_config=None, b1_config=None):
+                           slippage_bps=25.0, risk_config=None, b1_config=None,
+                           start_date=None, end_date=None):
     """Run one frozen legacy rule under one explicitly named experiment."""
-    indices = np.flatnonzero(panel.dates // 10000 == int(year))
+    if start_date is not None or end_date is not None:
+        if start_date is None or end_date is None:
+            raise ValueError("start_date and end_date must be provided together")
+        indices = np.flatnonzero((panel.dates >= int(start_date)) &
+                                (panel.dates <= int(end_date)))
+    else:
+        indices = np.flatnonzero(panel.dates // 10000 == int(year))
     if len(indices) == 0 or indices[0] == 0:
         raise ValueError("no backtest dates or missing prior signal date")
     first, last = int(indices[0]), int(indices[-1])
@@ -424,7 +431,8 @@ def run_legacy_v2_backtest(panel, strategy, year, mode="a2_pit_corrected",
         ending_industry[bucket] = ending_industry.get(bucket, 0.0) + value
     result = {
         "strategy": adapter.strategy_id, "source_strategy": strategy,
-        "experiment": mode, "year": int(year),
+        "experiment": mode, "year": int(year) if year is not None else None,
+        "start": int(panel.dates[first]), "end": int(panel.dates[last]),
         "return_pct": (capital[-1] / initial - 1) * 100,
         "max_drawdown_pct": (capital / np.maximum.accumulate(capital) - 1).min() * 100,
         "filled_buys": int(((fills.side == "buy") & (fills.status == "filled")).sum())

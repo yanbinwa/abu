@@ -297,7 +297,8 @@ def _index_rows(ak, today):
     return frames
 
 
-def update_market_data(signal_dir, raw_dir, paper_dir, today=None, dry_run=False):
+def update_market_data(signal_dir, raw_dir, paper_dir, today=None, dry_run=False,
+                       required_trade_date=None):
     import akshare as ak
 
     today = today or date.today()
@@ -328,6 +329,8 @@ def update_market_data(signal_dir, raw_dir, paper_dir, today=None, dry_run=False
             "{} missing trading sessions require historical backfill: {}".format(
                 len(available_dates), available_dates))
     trade_date = available_dates[0]
+    if required_trade_date is not None and trade_date != int(required_trade_date):
+        raise RuntimeError('prospective collection requires a same-day index session')
     try:
         spot_raw = _retry(ak.stock_zh_a_spot_em)
         spot = normalize_spot(spot_raw, trade_date, volume_multiplier=100.0)

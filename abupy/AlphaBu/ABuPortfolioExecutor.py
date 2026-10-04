@@ -165,6 +165,7 @@ class PortfolioExecutor(object):
             initial_stop_raw=intent.initial_stop_raw,
             planned_initial_r_per_share_raw=planned_risk_per_share,
             planned_initial_r_cash=planned_risk_per_share * quantity,
+            reason=str((intent.metadata or {}).get("exit_reason", "") or ""),
             target_trade_id=intent.trade_id,
             allocation_id=intent.allocation_id,
             position_effect=intent.position_effect,

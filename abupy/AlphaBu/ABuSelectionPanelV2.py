@@ -135,7 +135,9 @@ class SelectionPanelV2(object):
         self.lifecycle_events = lifecycle_events or []
 
     def __getattr__(self, name):
-        return getattr(self.base, name)
+        # During checkpoint restoration ``base`` is not assigned yet. Avoid
+        # recursively invoking this fallback while pickle checks __setstate__.
+        return getattr(object.__getattribute__(self, "base"), name)
 
     @classmethod
     def from_research_data(cls, signal_dir, research_dir, start_date=20200101,

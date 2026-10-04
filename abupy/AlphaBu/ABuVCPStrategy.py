@@ -560,7 +560,8 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                      sync_dynamic_stops=False, position_add_policy=None,
                      position_add_execution_mode="executable",
                      execution_policy_id="D0", minute_bars=None,
-                     intraday_execution_config=None, upper_limits=None):
+                     intraday_execution_config=None, upper_limits=None,
+                     scale_out_config=None):
     """Run a C/D/E/F VCP experiment through the common executor."""
     if experiment not in VCP_EXPERIMENTS:
         raise ValueError("unknown VCP experiment")
@@ -604,6 +605,10 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
             data_version="vcp_position_add_v1",
             execution_mode=position_add_execution_mode)
     exits = make_vcp_exit_engine(panel, exit_profile)
+    scale_out = None
+    if scale_out_config is not None:
+        from .ABuScaleOutPolicy import RMultipleScaleOutPolicy
+        scale_out = RMultipleScaleOutPolicy(scale_out_config)
     intent_lookup = {}
     entry_intent_by_symbol = {}
     decision_rows = []
@@ -616,23 +621,37 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
     pending_exits = []
     for day in range(first, last + 1):
         signal_day = day - 1
-        for symbol, reason in pending_exits:
+        for symbol, reason, requested_quantity, position_effect in pending_exits:
             position = executor.positions.get(symbol)
             if position is None:
                 continue
             if any(order.side == "sell" and order.symbol == symbol
                    for order in executor.orders):
                 continue
+            trades = executor.position_ledger.active_trades(symbol)
+            trade = trades[0] if len(trades) == 1 else None
+            quantity = (position.quantity if requested_quantity is None else
+                        min(int(requested_quantity), position.quantity))
             sell = TradeIntent(
                 intent_id=make_record_id("vcp-exit", int(panel.dates[signal_day]),
                                          symbol, reason),
                 strategy_id=entry_intent_by_symbol[symbol].strategy_id,
                 strategy_version="1", signal_asof=int(panel.dates[signal_day]),
                 symbol=symbol, side="sell", metadata={"exit_reason": reason},
+                trade_id=(trade.trade_id if trade is not None else ""),
+                allocation_id=(trade.allocation_id if trade is not None else "GLOBAL"),
+                position_effect=position_effect,
             )
-            executor.approve_order(sell, position.quantity, int(panel.dates[day]))
+            order, _ = executor.approve_order(
+                sell, quantity, int(panel.dates[day]))
+            if order is None and position_effect == "REDUCE" and \
+                    scale_out is not None:
+                scale_out.record_cancel(symbol)
+            intent_lookup[sell.intent_id] = sell
             exit_reasons.append({"date": int(panel.dates[signal_day]),
-                                 "symbol": symbol, "reason": reason})
+                                 "symbol": symbol, "reason": reason,
+                                 "position_effect": position_effect,
+                                 "quantity": quantity})
 
         held_or_ordered = set(executor.positions) | {
             order.symbol for order in executor.orders if order.side == "buy"
@@ -641,7 +660,8 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                       if intent.symbol not in held_or_ordered]
         possible_slots = max(0, 10 - len(executor.positions) +
                              sum(symbol in executor.positions
-                                 for symbol, _ in pending_exits))
+                                 for symbol, _, _, effect in pending_exits
+                                 if effect == "CLOSE"))
         candidates = candidates[:possible_slots]
         if use_risk:
             results = risk.approve_batch(executor, candidates, signal_day, day)
@@ -695,16 +715,32 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                     executor, order, day, outcome))
         for fill in fills:
             if fill.status != "filled":
+                if (fill.side == "sell" and fill.position_effect == "REDUCE" and
+                        fill.status in ("rejected", "expired", "cancelled") and
+                        scale_out is not None):
+                    scale_out.record_cancel(fill.symbol)
                 continue
             if fill.side == "sell":
-                exits.remove(fill.symbol)
-                entry_intent_by_symbol.pop(fill.symbol, None)
+                reason = str(intent_lookup[fill.intent_id].metadata.get(
+                    "exit_reason", ""))
+                if fill.position_effect == "REDUCE":
+                    if scale_out is not None:
+                        scale_out.record_fill(fill.symbol, reason, fill.quantity)
+                else:
+                    exits.remove(fill.symbol)
+                    entry_intent_by_symbol.pop(fill.symbol, None)
+                    if scale_out is not None:
+                        scale_out.remove(fill.symbol)
             else:
                 if fill.position_effect == "INCREASE":
+                    if scale_out is not None:
+                        scale_out.register_add(fill.symbol, fill.quantity)
                     continue
                 intent = intent_lookup[fill.intent_id]
                 exits.register_entry(intent, fill, day)
                 entry_intent_by_symbol[fill.symbol] = intent
+                if scale_out is not None:
+                    scale_out.register_entry(fill.symbol, fill.quantity)
         executor.process_close(day)
 
         pending_exits = []
@@ -727,11 +763,20 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                 if add_coordinator is not None and current_stop is not None:
                     add_stop_overrides[symbol] = current_stop
                 if reason:
-                    pending_exits.append((symbol, reason))
+                    pending_exits.append((symbol, reason, None, "CLOSE"))
+                elif scale_out is not None:
+                    decision = scale_out.evaluate(
+                        symbol, float(
+                            panel.close[day, panel.symbol_index[symbol]]),
+                        state, executor.positions[symbol].quantity)
+                    if decision is not None:
+                        pending_exits.append((
+                            symbol, decision["reason"], decision["quantity"],
+                            decision["position_effect"]))
             pending_intents = strategy.generate_intents(day, variant)
             all_intents.extend(pending_intents)
             if add_coordinator is not None:
-                blocked_symbols = {symbol for symbol, _ in pending_exits}
+                blocked_symbols = {symbol for symbol, _, _, _ in pending_exits}
                 blocked_trades = {
                     trade.trade_id
                     for trade in executor.position_ledger.active_trades()
@@ -777,6 +822,8 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
         "risk_config_sha256": risk.config.sha256,
         "dynamic_stop_sync": bool(sync_dynamic_stops),
         "execution_policy_id": execution_policy_id,
+        "scale_out_policy_id": (
+            scale_out.config.policy_id if scale_out is not None else "unified_exit"),
     }
     if audit is not None:
         audit.update({
@@ -800,5 +847,6 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
             "lot_dispositions": list(executor.position_ledger.lot_dispositions),
             "logical_trades": list(executor.position_ledger.logical_trades.values()),
             "intraday_order_events": list(intraday_order_events),
+            "exits": list(exit_reasons),
         })
     return result, curve, fills, decision_rows, exit_reasons

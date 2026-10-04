@@ -1,0 +1,19 @@
+{
+  "version": "alpha158_forward_shadow_v1",
+  "initial_cash_per_account": 1000000.0,
+  "initial_training_start": 20220104,
+  "model_update_policy": "fit_once_at_registration_then_frozen",
+  "minimum_market_rows": 3000,
+  "minimum_candidate_rows": 1500,
+  "primary_slippage_bps": 25.0,
+  "stress_slippage_bps": [40.0, 60.0],
+  "evaluation_months": [6, 9, 12, 18],
+  "minimum_entry_date_clusters_per_arm": 30,
+  "maximum_drawdown_fraction": 0.15,
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20261004,
+  "automatic_admission": false,
+  "real_orders_allowed": false,
+  "notify_external_channels": false
+}

@@ -27,6 +27,7 @@ from abupy.AlphaBu.ABuPositionAddPolicy import (
     load_turtle_atr_config,
 )
 from abupy.AlphaBu.ABuPositionAddResearch import FixedPathOverlayBook
+from abupy.AlphaBu.ABuScaleOutPolicy import ScaleOutConfig
 from abupy.AlphaBu.ABuSelectionPanelV2 import SelectionPanelV2
 from abupy.AlphaBu.ABuVCPStrategy import (
     load_vcp_attention_config, load_vcp_core_config, load_vcp_residual_config,
@@ -75,6 +76,14 @@ def _metrics(curve, fills, initial=1_000_000.0):
                             fills.status.eq("filled") &
                             fills.position_effect.eq("INCREASE")).sum())
             if "position_effect" in fills else 0,
+        "filled_reduces": int(((fills.side == "sell") &
+                               fills.status.eq("filled") &
+                               fills.position_effect.eq("REDUCE")).sum())
+            if "position_effect" in fills else 0,
+        "filled_closes": int(((fills.side == "sell") &
+                              fills.status.eq("filled") &
+                              fills.position_effect.eq("CLOSE")).sum())
+            if "position_effect" in fills else 0,
     }
 
 
@@ -90,6 +99,7 @@ def _write_audit(directory, result, curve, fills, audit):
         "position_lots": "position_lots.csv",
         "lot_dispositions": "lot_dispositions.csv",
         "logical_trades": "logical_trades.csv",
+        "exits": "exit_reasons.csv",
         "risk_states_daily": "risk_states_daily.csv",
         "risk_positions_daily": "risk_positions_daily.csv",
     }
@@ -181,7 +191,7 @@ def _materialize_overlay(panel, audit, directory):
     }
 
 
-def run_vcp(panel, policy, mode, output):
+def run_vcp(panel, policy, mode, output, scale_out_config=None):
     risk = load_risk_config(ROOT/"configs/selection/risk_v1.json")
     audit = {}
     result, curve, fills, _, _ = run_vcp_backtest(
@@ -192,7 +202,8 @@ def run_vcp(panel, policy, mode, output):
         load_vcp_residual_config(ROOT/"configs/selection/vcp_residual_v2.json"),
         start_date=20220101, end_date=20261231, audit=audit,
         sync_dynamic_stops=(mode == "executable"), position_add_policy=policy,
-        position_add_execution_mode=mode)
+        position_add_execution_mode=mode,
+        scale_out_config=scale_out_config)
     result.update(_metrics(curve, fills))
     _write_audit(output, result, curve, fills, audit)
     if mode == "shadow":
@@ -203,7 +214,7 @@ def run_vcp(panel, policy, mode, output):
     return result
 
 
-def run_alpha(panel, policy, mode, output, predictions):
+def run_alpha(panel, policy, mode, output, predictions, scale_out_config=None):
     source = load_alpha158_lite_config(
         ROOT/"configs/selection/alpha158_lite_v1.json")
     low = load_alpha158_lite_low_turnover_config(
@@ -217,7 +228,8 @@ def run_alpha(panel, policy, mode, output, predictions):
         panel, scores, source, low,
         load_risk_config(ROOT/"configs/selection/risk_v1.json"), 20260930,
         sync_dynamic_stops=(mode == "executable"), position_add_policy=policy,
-        position_add_execution_mode=mode)
+        position_add_execution_mode=mode,
+        scale_out_config=scale_out_config)
     result.update(_metrics(audit["curve"], audit["fills"]))
     _write_audit(output, result, audit["curve"], audit["fills"], audit)
     if mode == "shadow":
@@ -239,6 +251,10 @@ def main():
                         default="protected_winner")
     parser.add_argument("--mode", choices=("shadow", "executable"),
                         default="executable")
+    parser.add_argument("--exit-mode", choices=(
+        "unified", "scale_out_1r", "scale_out_2r", "scale_out_2r_50",
+        "scale_out_1r_2r"),
+                        default="unified")
     parser.add_argument("--signal-dir", type=Path,
                         default=Path("/Users/wjy/abu/data/csv"))
     parser.add_argument("--research-dir", type=Path,
@@ -250,17 +266,31 @@ def main():
         "/Users/wjy/abu/backtests/position_add_v1"))
     args = parser.parse_args()
     policy = _policy(args.policy)
+    scale_configs = {
+        "scale_out_1r": ScaleOutConfig(
+            policy_id="scale_out_1r_v1", trigger_r_multiples=(1.0,),
+            cumulative_exit_fractions=(0.25,)),
+        "scale_out_2r": ScaleOutConfig(
+            policy_id="scale_out_2r_v1", trigger_r_multiples=(2.0,),
+            cumulative_exit_fractions=(0.25,)),
+        "scale_out_2r_50": ScaleOutConfig(
+            policy_id="scale_out_2r_50_v1", trigger_r_multiples=(2.0,),
+            cumulative_exit_fractions=(0.50,)),
+        "scale_out_1r_2r": ScaleOutConfig(),
+    }
+    scale_out_config = scale_configs.get(args.exit_mode)
     panel = SelectionPanelV2.from_research_data(
         args.signal_dir, args.research_dir, start_date=20210101,
         end_date=20261231)
     results = []
     if args.strategy in ("vcp", "all"):
-        result = run_vcp(panel, policy, args.mode, args.output_dir/"vcp")
+        result = run_vcp(
+            panel, policy, args.mode, args.output_dir/"vcp", scale_out_config)
         results.append({"strategy": "vcp", **result})
         print("vcp", result["return_pct"], result["filled_adds"], flush=True)
     if args.strategy in ("alpha158", "all"):
         result = run_alpha(panel, policy, args.mode, args.output_dir/"alpha158",
-                           args.predictions)
+                           args.predictions, scale_out_config)
         results.append({"strategy": "alpha158", **result})
         print("alpha158", result["return_pct"], result["filled_adds"], flush=True)
     pd.DataFrame(results).to_csv(args.output_dir/"strategy_summary.csv", index=False)

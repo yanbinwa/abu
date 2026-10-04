@@ -32,7 +32,7 @@ def _read_orders(path, source):
     return frame
 
 
-def run(panel, order_frames, risk_config):
+def run(panel, order_frames, risk_config, start_date=None, end_date=None):
     orders = pd.concat(order_frames, ignore_index=True).sort_values(
         ["valid_session", "side", "strategy_id", "symbol", "order_id"],
         kind="mergesort")
@@ -42,6 +42,10 @@ def run(panel, order_frames, risk_config):
     date_index = {int(value): index for index, value in enumerate(panel.dates)}
     first = min(date_index[int(value)] for value in orders.valid_session)
     last = max(date_index[int(value)] for value in orders.valid_session)
+    if start_date is not None:
+        first = date_index[int(start_date)]
+    if end_date is not None:
+        last = date_index[int(end_date)]
     for column in range(len(panel.symbols)):
         history = panel.exec_close[:first, column]
         valid = history[np.isfinite(history) & (history > 0)]

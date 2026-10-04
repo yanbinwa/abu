@@ -1,0 +1,23 @@
+{
+  "strategy_version": "alpha158_price_only_no_rank_exit_v1",
+  "source_policy": "configs/selection/alpha158_lite_low_turnover_v3.json",
+  "source_model": "configs/selection/alpha158_lite_v1.json",
+  "risk_config": "configs/selection/risk_v1.json",
+  "review_overlay": "suppress_rank_exits",
+  "target_positions": 10,
+  "dynamic_stop_sync": false,
+  "event_exits_enabled": true,
+  "position_add_enabled": false,
+  "scale_out_enabled": false,
+  "default_slippage_bps": 25.0,
+  "research_only": true,
+  "paper_admitted": false,
+  "live_admitted": false,
+  "primary_experiment": "alpha158-price-only-cost-portfolio-v1",
+  "admission_blockers": [
+    "drawdown_not_better_in_every_frozen_cost_scenario",
+    "full_period_paired_bootstrap_interval_crosses_zero",
+    "full_period_three_limit_liquidation_terminal_return_negative",
+    "no_new_forward_sample"
+  ]
+}

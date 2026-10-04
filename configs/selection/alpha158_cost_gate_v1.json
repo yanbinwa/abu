@@ -1,0 +1,14 @@
+{
+  "version": "alpha158_cost_gate_v1",
+  "label_horizon_sessions": 20,
+  "minimum_calibration_dates": 126,
+  "maximum_calibration_dates": 252,
+  "percentile_edges": [0.0, 0.5, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995, 1.0],
+  "hac_lags": 19,
+  "confidence_z": 1.645,
+  "extra_cost_buffer_bps": 5.0,
+  "slippage_scenarios_bps": [25.0, 40.0, 60.0],
+  "experiments": ["baseline", "no_rank_exit", "cost_gate", "diversified_20"],
+  "parameter_search": false,
+  "research_only": true
+}

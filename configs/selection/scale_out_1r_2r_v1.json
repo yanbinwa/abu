@@ -1,0 +1,8 @@
+{
+  "policy_id": "scale_out_1r_2r_v1",
+  "signal_timing": "close_to_next_open",
+  "trigger_r_multiples": [1.0, 2.0],
+  "cumulative_exit_fractions": [0.25, 0.50],
+  "lot_size": 100,
+  "full_exit_reasons_unchanged": true
+}
