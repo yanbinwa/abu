@@ -3,6 +3,10 @@ from __future__ import absolute_import
 from .ABuDataBase import BaseMarket, FuturesBaseMarket, StockBaseMarket, TCBaseMarket, SupportMixin
 from .ABuDataParser import AbuDataParseWrap
 from .ABuDataFeedAkShare import AKShareCNApi, akshare_cn_stock_info, akshare_cn_symbols, use_akshare
+from .ABuRealtimeMarket import (
+    AKShareRealtimeMarketData, MarketDataHealth, RealtimeMarketDataAdapter,
+    RealtimeMarketDataError, normalize_cn_symbol,
+)
 from . import ABuSymbolPd
 from .ABuSymbolPd import get_price
 from .ABuSymbol import IndexSymbol, Symbol, code_to_symbol, search_to_symbol_dict
@@ -27,6 +31,11 @@ __all__ = [
     'akshare_cn_stock_info',
     'akshare_cn_symbols',
     'use_akshare',
+    'AKShareRealtimeMarketData',
+    'MarketDataHealth',
+    'RealtimeMarketDataAdapter',
+    'RealtimeMarketDataError',
+    'normalize_cn_symbol',
     'MarketMixin',
     'ABuSymbolPd',
     'get_price',
