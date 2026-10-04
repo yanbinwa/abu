@@ -1,0 +1,18 @@
+{
+  "config_version": "fundamental_balance_fallback_v4",
+  "adapter_version": "akshare_1.18.21_eastmoney_balance_snapshot_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/fundamental_balance_fallback_raw",
+  "security_master": "/Users/wjy/abu/data/selection_research/security_master.csv",
+  "trading_sessions_source": "/Users/wjy/abu/data/csv/sh000300_20061002_20261002",
+  "statement_type": "balance",
+  "source_role": "total_share_fallback_candidate",
+  "max_concurrency": 1,
+  "strict_rules": {
+    "currency": "CNY",
+    "unit_scale": 1.0,
+    "revision_history_complete": false,
+    "empty_response_is_missing_not_zero": true,
+    "allow_future_backfill": false
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

@@ -1,5 +1,5 @@
 # -*- encoding: utf-8 -*-
-"""Render audited VCP round trips on adjusted candlestick charts."""
+"""Render audited strategy round trips on adjusted candlestick charts."""
 from __future__ import annotations
 
 import ast
@@ -25,6 +25,7 @@ EXIT_REASON_LABELS = {
     "BREAKOUT_FAILURE": "突破失败",
     "MARKET_REGIME": "市场状态退出",
     "FIXED_HOLD": "固定持有期退出",
+    "PERSISTENT_RANK_EXIT": "持续排名退出",
 }
 
 EXIT_REASON_DETAILS = {
@@ -34,7 +35,30 @@ EXIT_REASON_DETAILS = {
     "BREAKOUT_FAILURE": "突破后五日内收盘价重新跌回突破位",
     "MARKET_REGIME": "基准指数收盘价跌破 MA200",
     "FIXED_HOLD": "达到固定持有期限",
+    "PERSISTENT_RANK_EXIT": (
+        "持仓满10个交易日，且连续两次五日评估跌出前100名"),
 }
+
+
+def _entry_explanation(strategy_id, signal_date, score, daily_rank=None):
+    """Return user-facing entry text for each audited strategy family."""
+    strategy_id = str(strategy_id)
+    if strategy_id.startswith("alpha158_lite"):
+        rank_text = ("，当日排名第{}名".format(int(daily_rank))
+                     if daily_rank is not None and np.isfinite(daily_rank)
+                     else "")
+        return (
+            "Alpha158 Lite 横截面评分连续两次五日评估进入前50名；"
+            "组合风险审批通过",
+            "信号日 {}，综合评分 {:.4f}{}。".format(
+                int(signal_date), float(score), rank_text),
+        )
+    return (
+        "VCP 收缩后突破；趋势过滤通过；中期残差动量为正；"
+        "组合风险审批通过",
+        "信号日 {}，综合评分 {:.4f}。".format(
+            int(signal_date), float(score)),
+    )
 
 
 def _metadata(value):
@@ -54,7 +78,38 @@ def _fees(row):
                for name in ("commission", "transfer_fee", "stamp_tax"))
 
 
-def build_round_trips(fills, intents, exit_reasons, position_events=None):
+def build_position_add_markers(fills, allocations, dispositions):
+    """Return chart markers with one-to-one fill/disposition lineage."""
+    fill_map = {str(row.fill_id): row for row in fills.itertuples(index=False)
+                if hasattr(row, "fill_id")}
+    rows = []
+    for allocation in allocations.itertuples(index=False):
+        fill = fill_map.get(str(allocation.physical_fill_id))
+        if fill is None:
+            raise ValueError("allocation references unknown physical fill")
+        rows.append({
+            "trade_id": str(allocation.trade_id),
+            "fill_allocation_id": str(allocation.fill_allocation_id),
+            "fill_id": str(allocation.physical_fill_id),
+            "symbol": str(allocation.symbol), "date": int(fill.date),
+            "price_raw": float(allocation.allocated_fill_price_raw),
+            "quantity": int(allocation.allocated_quantity),
+            "marker_type": str(allocation.position_effect),
+            "reason": str(getattr(fill, "source_policy_id", "") or
+                          getattr(fill, "reason_code", "")),
+        })
+    disposition_ids = {str(row.fill_allocation_id)
+                       for row in dispositions.itertuples(index=False)}
+    sell_allocations = {
+        str(row.fill_allocation_id) for row in allocations.itertuples(index=False)
+        if str(row.side) == "sell"}
+    if disposition_ids != sell_allocations:
+        raise ValueError("sell marker/disposition lineage mismatch")
+    return pd.DataFrame(rows)
+
+
+def build_round_trips(fills, intents, exit_reasons, position_events=None,
+                      require_all_closed=True):
     """Pair filled buys and sells and independently calculate trade results."""
     fills = fills.copy()
     fills["_sequence"] = np.arange(len(fills))
@@ -116,6 +171,7 @@ def build_round_trips(fills, intents, exit_reasons, position_events=None):
             "sell_price_raw": float(row["fill_price_raw"]),
             "score": float(getattr(intent, "score", np.nan)),
             "residual_momentum": float(metadata.get("residual_momentum", np.nan)),
+            "daily_rank": float(metadata.get("daily_rank", np.nan)),
             "breakout_level_adjusted": float(metadata.get("breakout_level", np.nan)),
             "adjustment_factor_signal": float(
                 getattr(intent, "adjustment_factor_signal", np.nan)),
@@ -134,9 +190,18 @@ def build_round_trips(fills, intents, exit_reasons, position_events=None):
                            if initial_r_cash > 0 else np.nan),
             "event_count": len(trade_events),
         })
-    if active:
+    if active and require_all_closed:
         raise ValueError("unclosed filled buys: {}".format(sorted(active)))
-    return pd.DataFrame(records)
+    result = pd.DataFrame(records)
+    if len(result):
+        explanations = [
+            _entry_explanation(
+                row.strategy_id, row.signal_date, row.score, row.daily_rank)
+            for row in result.itertuples(index=False)
+        ]
+        result["entry_reason_cn"] = [item[0] for item in explanations]
+        result["entry_detail_cn"] = [item[1] for item in explanations]
+    return result
 
 
 def _configure_chinese_font():
@@ -169,6 +234,53 @@ def _load_price_file(directory, symbol, adjusted):
     for field in ("open", "high", "low", "close", "volume"):
         frame[field] = pd.to_numeric(frame[field], errors="coerce")
     return frame.dropna(subset=["date", "open", "high", "low", "close"]).copy()
+
+
+def load_or_rebuild_entry_intents(backtest_dir):
+    """Load full intents, or rebuild the entry fields exported by Alpha158."""
+    backtest_dir = Path(backtest_dir)
+    intent_path = backtest_dir / "intents.csv"
+    if intent_path.exists():
+        return pd.read_csv(intent_path)
+    orders = pd.read_csv(backtest_dir / "orders.csv")
+    buys = orders[orders.side.eq("buy")].copy()
+    decisions_path = backtest_dir / "selection_decisions.csv"
+    if decisions_path.exists():
+        decisions = pd.read_csv(decisions_path)
+        decisions = decisions.sort_values(
+            ["signal_asof", "symbol"], kind="mergesort").drop_duplicates(
+                ["signal_asof", "symbol"], keep="last")
+        buys = buys.merge(
+            decisions[["signal_asof", "symbol", "score", "daily_rank"]],
+            left_on=["created_asof", "symbol"],
+            right_on=["signal_asof", "symbol"], how="left")
+    else:
+        buys["score"], buys["daily_rank"] = np.nan, np.nan
+    adjusted_stop = pd.to_numeric(
+        buys.initial_stop_adjusted, errors="coerce")
+    raw_stop = pd.to_numeric(buys.initial_stop_raw, errors="coerce")
+    factor = raw_stop / adjusted_stop
+    rebuilt = pd.DataFrame({
+        "intent_id": buys.intent_id.astype(str),
+        "strategy_id": buys.strategy_id.astype(str),
+        "strategy_version": buys.strategy_version.astype(str),
+        "signal_asof": pd.to_numeric(
+            buys.created_asof, errors="raise").astype(int),
+        "symbol": buys.symbol.astype(str),
+        "score": pd.to_numeric(buys.score, errors="coerce"),
+        "adjustment_factor_signal": factor,
+        "initial_stop_raw": raw_stop,
+    })
+    rebuilt["metadata"] = [
+        repr({
+            "max_buy_price_raw": float(max_buy),
+            "daily_rank": (float(rank) if np.isfinite(rank) else np.nan),
+        })
+        for max_buy, rank in zip(
+            pd.to_numeric(buys.max_buy_price_raw, errors="coerce"),
+            pd.to_numeric(buys.daily_rank, errors="coerce"))
+    ]
+    return rebuilt
 
 
 def _window(frame, start_date, end_date, before, after):
@@ -290,14 +402,15 @@ def render_trade_chart(trade, adjusted_prices, raw_prices, output_path,
 
     residual = ("{:+.2%}".format(float(trade.residual_momentum))
                 if np.isfinite(float(trade.residual_momentum)) else "无")
-    buy_reason = ("VCP 收缩后突破；趋势过滤通过；中期残差动量为正；"
-                  "组合风险审批通过")
+    rank = ("第{}名".format(int(trade.daily_rank))
+            if np.isfinite(float(trade.daily_rank)) else "无")
+    buy_reason = str(trade.entry_reason_cn)
     detail = EXIT_REASON_DETAILS.get(str(trade.exit_reason), str(trade.exit_reason))
     lines = [
         "买入信号：{}（信号日 {}，次日开盘成交）".format(
             buy_reason, int(trade.signal_date)),
-        "入场依据：综合评分 {:.3f}；残差动量 {}；初始止损 ¥{:.3f}；最高允许买价 ¥{:.3f}".format(
-            float(trade.score), residual, float(trade.initial_stop_raw),
+        "入场依据：综合评分 {:.4f}；当日排名 {}；残差动量 {}；初始止损 ¥{:.3f}；最高允许买价 ¥{:.3f}".format(
+            float(trade.score), rank, residual, float(trade.initial_stop_raw),
             float(trade.max_buy_price_raw)),
         "卖出信号：{}（{}）；信号日 {}，实际成交日 {}".format(
             trade.exit_reason_cn, detail, int(trade.sell_signal_date),
@@ -324,8 +437,11 @@ def write_html_index(trades, output_dir, title):
     wins = int((trades.net_pnl > 0).sum())
     payload = []
     for trade in trades.itertuples(index=False):
-        image_name = "charts/{:04d}_{}_{}_{}.png".format(
-            int(trade.trade_no), trade.symbol, int(trade.buy_date), int(trade.sell_date))
+        image_name = str(getattr(
+            trade, "chart_path",
+            "charts/{:04d}_{}_{}_{}.png".format(
+                int(trade.trade_no), trade.symbol, int(trade.buy_date),
+                int(trade.sell_date))))
         def number(value):
             value = float(value)
             return value if np.isfinite(value) else None
@@ -333,6 +449,9 @@ def write_html_index(trades, output_dir, title):
         payload.append({
             "tradeNo": int(trade.trade_no), "symbol": str(trade.symbol),
             "stockName": str(getattr(trade, "stock_name", "")),
+            "strategyId": str(getattr(trade, "strategy_id", "strategy")),
+            "strategyName": str(getattr(
+                trade, "strategy_name", getattr(trade, "strategy_id", "策略"))),
             "signalDate": int(trade.signal_date), "buyDate": int(trade.buy_date),
             "sellSignalDate": int(trade.sell_signal_date),
             "sellDate": int(trade.sell_date),
@@ -342,6 +461,7 @@ def write_html_index(trades, output_dir, title):
             "sellPrice": number(trade.sell_price_raw),
             "score": number(trade.score),
             "residualMomentum": number(trade.residual_momentum),
+            "dailyRank": number(getattr(trade, "daily_rank", np.nan)),
             "initialStop": number(trade.initial_stop_raw),
             "maxBuyPrice": number(trade.max_buy_price_raw),
             "exitReason": str(trade.exit_reason),
@@ -354,6 +474,8 @@ def write_html_index(trades, output_dir, title):
             "netPnl": number(trade.net_pnl),
             "returnPct": number(trade.return_pct),
             "rMultiple": number(trade.r_multiple),
+            "entryReason": str(getattr(trade, "entry_reason_cn", "信号条件通过")),
+            "entryDetail": str(getattr(trade, "entry_detail_cn", "")),
             "image": image_name,
         })
     data_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
@@ -379,20 +501,21 @@ button,input,select{font:inherit}.topbar{padding:24px 28px 18px;background:linea
 .detail{border-top:1px solid var(--line);padding:18px}.detail-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.detail-title h2{margin:0;font-size:20px}.badge{border-radius:999px;padding:4px 9px;background:#f2f4f7;color:#344054;font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:10px;margin-top:14px}.metric{background:#f8fafc;border-radius:9px;padding:10px 12px}.metric small{display:block;color:var(--muted);margin-bottom:5px}.metric b{font-size:15px}.reason{margin-top:12px;padding:12px 14px;border-left:3px solid var(--blue);background:var(--blue-soft);font-size:13px;line-height:1.7}
 .hint{color:var(--muted);font-size:11px;margin-left:auto}@media(max-width:960px){.stats{grid-template-columns:repeat(2,1fr)}.workspace{grid-template-columns:1fr}.trade-list{height:300px;min-height:0}.detail-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:560px){.topbar,.workspace{padding-left:14px;padding-right:14px}.stats{margin-left:14px;margin-right:14px}.viewer-bar{flex-wrap:wrap}.jump{min-width:100%;order:-1}.hint{display:none}}
 </style></head><body>
-<header class="topbar"><h1>__TITLE__</h1><p>选择任意交易查看完整 K 线、成交位置和策略原因。图表使用前复权价格，标注显示真实未复权成交价。</p></header>
+<header class="topbar"><h1>__TITLE__</h1><p>选择任意交易查看完整 K 线、成交位置和策略原因。图表使用前复权价格，标注显示真实未复权成交价。统计来自独立研究账本，不代表合并资金组合。</p></header>
 <section class="stats"><div class="stat"><small>完整交易</small><strong>__COUNT__ 笔</strong></div><div class="stat"><small>完整现金流胜率</small><strong>__WIN_RATE__%</strong></div><div class="stat"><small>净盈亏</small><strong class="__PNL_CLASS__">__PNL__</strong></div><div class="stat"><small>平均每笔收益</small><strong>__AVG__%</strong></div></section>
-<main class="workspace"><aside class="sidebar"><div class="filters"><input id="search" type="search" placeholder="搜索股票代码或名称" aria-label="搜索交易"><div class="filter-row"><select id="reasonFilter" aria-label="退出原因"><option value="all">全部退出原因</option></select><select id="outcomeFilter" aria-label="盈亏结果"><option value="all">全部结果</option><option value="win">盈利</option><option value="loss">亏损</option></select></div><div class="filter-row"><select id="sortBy" aria-label="排序"><option value="time">按交易时间</option><option value="pnlDesc">盈利从高到低</option><option value="pnlAsc">亏损从低到高</option><option value="rDesc">R 倍数从高到低</option></select><button class="nav-button" id="resetFilter">重置筛选</button></div></div><div class="list-head"><span>交易列表</span><span id="visibleCount"></span></div><div class="trade-list" id="tradeList"></div></aside>
+<main class="workspace"><aside class="sidebar"><div class="filters"><input id="search" type="search" placeholder="搜索股票代码或名称" aria-label="搜索交易"><div class="filter-row"><select id="strategyFilter" aria-label="策略"><option value="all">全部策略</option></select><select id="reasonFilter" aria-label="退出原因"><option value="all">全部退出原因</option></select></div><div class="filter-row"><select id="outcomeFilter" aria-label="盈亏结果"><option value="all">全部结果</option><option value="win">盈利</option><option value="loss">亏损</option></select><select id="sortBy" aria-label="排序"><option value="time">按交易时间</option><option value="pnlDesc">盈利从高到低</option><option value="pnlAsc">亏损从低到高</option><option value="rDesc">R 倍数从高到低</option></select></div><button class="nav-button" id="resetFilter" style="width:100%;margin-top:8px">重置筛选</button></div><div class="list-head"><span>交易列表</span><span id="visibleCount"></span></div><div class="trade-list" id="tradeList"></div></aside>
 <section class="viewer"><div class="viewer-bar"><button class="nav-button" id="prevTrade">← 上一笔</button><div class="jump"><select id="tradeSelect" aria-label="选择交易"></select></div><button class="nav-button" id="nextTrade">下一笔 →</button><a class="open-button" id="openOriginal" target="_blank" rel="noopener">查看原图</a><span class="hint">键盘 ← → 切换</span></div><div class="chart-wrap"><img id="tradeChart" alt="所选交易 K 线图"><div class="chart-empty" id="emptyState" hidden>没有符合筛选条件的交易</div></div><div class="detail" id="detail"></div></section></main>
 <script id="trade-data" type="application/json">__TRADE_DATA__</script>
 <script>
 const allTrades=JSON.parse(document.getElementById('trade-data').textContent);let visible=[...allTrades],selected=null;
 const $=id=>document.getElementById(id);const money=v=>`${v>=0?'+':'-'}¥${Math.abs(v).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}`;const signed=(v,d=2)=>`${v>=0?'+':''}${v.toFixed(d)}`;const pct=v=>`${signed(v)}%`;const date=v=>String(v).replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3');const cls=v=>v>0?'win':'loss';const safe=s=>String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-function label(t){return `#${t.tradeNo} · ${t.symbol} ${t.stockName} · ${date(t.buyDate)} · ${t.exitReasonCn} · ${pct(t.returnPct)}`}
-function applyFilters(){const q=$('search').value.trim().toLowerCase(),reason=$('reasonFilter').value,outcome=$('outcomeFilter').value,sort=$('sortBy').value;visible=allTrades.filter(t=>(!q||`${t.symbol} ${t.stockName}`.toLowerCase().includes(q))&&(reason==='all'||t.exitReason===reason)&&(outcome==='all'||(outcome==='win'?t.netPnl>0:t.netPnl<=0)));if(sort==='pnlDesc')visible.sort((a,b)=>b.netPnl-a.netPnl);else if(sort==='pnlAsc')visible.sort((a,b)=>a.netPnl-b.netPnl);else if(sort==='rDesc')visible.sort((a,b)=>b.rMultiple-a.rMultiple);else visible.sort((a,b)=>a.tradeNo-b.tradeNo);renderControls();const keep=visible.find(t=>selected&&t.tradeNo===selected.tradeNo);selectTrade(keep||visible[0]||null)}
-function renderControls(){$('visibleCount').textContent=`${visible.length} / ${allTrades.length}`;$('tradeList').innerHTML=visible.map(t=>`<button class="trade-item ${selected&&selected.tradeNo===t.tradeNo?'active':''}" data-id="${t.tradeNo}"><span class="trade-no">#${t.tradeNo}</span><span class="trade-main"><span class="trade-symbol">${safe(t.symbol)} ${safe(t.stockName)}</span><span class="trade-meta">${date(t.buyDate)} · ${safe(t.exitReasonCn)}</span></span><span class="pnl ${cls(t.netPnl)}">${pct(t.returnPct)}</span></button>`).join('');$('tradeSelect').innerHTML=visible.map(t=>`<option value="${t.tradeNo}">${safe(label(t))}</option>`).join('');document.querySelectorAll('.trade-item').forEach(el=>el.onclick=()=>selectTrade(allTrades.find(t=>t.tradeNo===Number(el.dataset.id))))}
-function selectTrade(t){selected=t;const has=Boolean(t);$('tradeChart').hidden=!has;$('emptyState').hidden=has;$('detail').hidden=!has;$('openOriginal').hidden=!has;if(!has){$('prevTrade').disabled=true;$('nextTrade').disabled=true;return}const index=visible.findIndex(x=>x.tradeNo===t.tradeNo);$('tradeSelect').value=String(t.tradeNo);$('tradeChart').src=t.image;$('tradeChart').alt=`${t.symbol} ${t.stockName} 第 ${t.tradeNo} 笔交易 K 线`;$('openOriginal').href=t.image;$('prevTrade').disabled=index<=0;$('nextTrade').disabled=index<0||index>=visible.length-1;$('detail').innerHTML=`<div class="detail-title"><h2>#${t.tradeNo} ${safe(t.symbol)} ${safe(t.stockName)}</h2><span class="badge">${date(t.buyDate)} → ${date(t.sellDate)}</span><span class="badge">${safe(t.exitReasonCn)}</span></div><div class="detail-grid"><div class="metric"><small>净盈亏</small><b class="${cls(t.netPnl)}">${money(t.netPnl)}</b></div><div class="metric"><small>交易收益</small><b class="${cls(t.returnPct)}">${pct(t.returnPct)}</b></div><div class="metric"><small>R 倍数</small><b>${signed(t.rMultiple)}R</b></div><div class="metric"><small>残差动量</small><b>${signed(t.residualMomentum*100)}%</b></div><div class="metric"><small>买入价 / 数量</small><b>¥${t.buyPrice.toFixed(3)} / ${t.buyQuantity.toLocaleString()}股</b></div><div class="metric"><small>卖出价 / 数量</small><b>¥${t.sellPrice.toFixed(3)} / ${t.sellQuantity.toLocaleString()}股</b></div><div class="metric"><small>费用 / 滑点</small><b>¥${t.fees.toFixed(2)} / ¥${t.slippage.toFixed(2)}</b></div><div class="metric"><small>现金分红</small><b>¥${t.cashDividend.toFixed(2)}</b></div></div><div class="reason"><b>买入：</b>VCP 收缩后突破，趋势过滤和正残差动量条件通过，组合风险审批通过。信号日 ${date(t.signalDate)}，最高允许买价 ¥${t.maxBuyPrice.toFixed(3)}，初始止损 ¥${t.initialStop.toFixed(3)}。<br><b>卖出：</b>${safe(t.exitReasonCn)}——${safe(t.exitDetail)}。信号日 ${date(t.sellSignalDate)}，实际成交日 ${date(t.sellDate)}。</div>`;history.replaceState(null,'',`#trade=${t.tradeNo}`);renderControls();setTimeout(()=>document.querySelector(`.trade-item[data-id="${t.tradeNo}"]`)?.scrollIntoView({block:'nearest'}),0)}
+function label(t){return `#${t.tradeNo} · ${t.strategyName} · ${t.symbol} ${t.stockName} · ${date(t.buyDate)} · ${t.exitReasonCn} · ${pct(t.returnPct)}`}
+function optional(v,formatter,empty='无'){return v===null||!Number.isFinite(v)?empty:formatter(v)}
+function applyFilters(){const q=$('search').value.trim().toLowerCase(),strategy=$('strategyFilter').value,reason=$('reasonFilter').value,outcome=$('outcomeFilter').value,sort=$('sortBy').value;visible=allTrades.filter(t=>(!q||`${t.symbol} ${t.stockName}`.toLowerCase().includes(q))&&(strategy==='all'||t.strategyId===strategy)&&(reason==='all'||t.exitReason===reason)&&(outcome==='all'||(outcome==='win'?t.netPnl>0:t.netPnl<=0)));if(sort==='pnlDesc')visible.sort((a,b)=>b.netPnl-a.netPnl);else if(sort==='pnlAsc')visible.sort((a,b)=>a.netPnl-b.netPnl);else if(sort==='rDesc')visible.sort((a,b)=>(b.rMultiple??-Infinity)-(a.rMultiple??-Infinity));else visible.sort((a,b)=>a.tradeNo-b.tradeNo);renderControls();const keep=visible.find(t=>selected&&t.tradeNo===selected.tradeNo);selectTrade(keep||visible[0]||null)}
+function renderControls(){$('visibleCount').textContent=`${visible.length} / ${allTrades.length}`;$('tradeList').innerHTML=visible.map(t=>`<button class="trade-item ${selected&&selected.tradeNo===t.tradeNo?'active':''}" data-id="${t.tradeNo}"><span class="trade-no">#${t.tradeNo}</span><span class="trade-main"><span class="trade-symbol">${safe(t.symbol)} ${safe(t.stockName)}</span><span class="trade-meta">${safe(t.strategyName)} · ${date(t.buyDate)} · ${safe(t.exitReasonCn)}</span></span><span class="pnl ${cls(t.netPnl)}">${pct(t.returnPct)}</span></button>`).join('');$('tradeSelect').innerHTML=visible.map(t=>`<option value="${t.tradeNo}">${safe(label(t))}</option>`).join('');document.querySelectorAll('.trade-item').forEach(el=>el.onclick=()=>selectTrade(allTrades.find(t=>t.tradeNo===Number(el.dataset.id))))}
+function selectTrade(t){selected=t;const has=Boolean(t);$('tradeChart').hidden=!has;$('emptyState').hidden=has;$('detail').hidden=!has;$('openOriginal').hidden=!has;if(!has){$('prevTrade').disabled=true;$('nextTrade').disabled=true;return}const index=visible.findIndex(x=>x.tradeNo===t.tradeNo);$('tradeSelect').value=String(t.tradeNo);$('tradeChart').src=t.image;$('tradeChart').alt=`${t.symbol} ${t.stockName} 第 ${t.tradeNo} 笔交易 K 线`;$('openOriginal').href=t.image;$('prevTrade').disabled=index<=0;$('nextTrade').disabled=index<0||index>=visible.length-1;$('detail').innerHTML=`<div class="detail-title"><h2>#${t.tradeNo} ${safe(t.symbol)} ${safe(t.stockName)}</h2><span class="badge">${safe(t.strategyName)}</span><span class="badge">${date(t.buyDate)} → ${date(t.sellDate)}</span><span class="badge">${safe(t.exitReasonCn)}</span></div><div class="detail-grid"><div class="metric"><small>净盈亏</small><b class="${cls(t.netPnl)}">${money(t.netPnl)}</b></div><div class="metric"><small>交易收益</small><b class="${cls(t.returnPct)}">${pct(t.returnPct)}</b></div><div class="metric"><small>R 倍数</small><b>${optional(t.rMultiple,v=>signed(v)+'R')}</b></div><div class="metric"><small>排名 / 残差动量</small><b>${optional(t.dailyRank,v=>'第'+Math.round(v)+'名')} / ${optional(t.residualMomentum,v=>signed(v*100)+'%')}</b></div><div class="metric"><small>买入价 / 数量</small><b>¥${t.buyPrice.toFixed(3)} / ${t.buyQuantity.toLocaleString()}股</b></div><div class="metric"><small>卖出价 / 数量</small><b>¥${t.sellPrice.toFixed(3)} / ${t.sellQuantity.toLocaleString()}股</b></div><div class="metric"><small>费用 / 滑点</small><b>¥${t.fees.toFixed(2)} / ¥${t.slippage.toFixed(2)}</b></div><div class="metric"><small>现金分红</small><b>¥${t.cashDividend.toFixed(2)}</b></div></div><div class="reason"><b>买入：</b>${safe(t.entryReason)}。${safe(t.entryDetail)}最高允许买价 ¥${t.maxBuyPrice.toFixed(3)}，初始止损 ¥${t.initialStop.toFixed(3)}。<br><b>卖出：</b>${safe(t.exitReasonCn)}——${safe(t.exitDetail)}。信号日 ${date(t.sellSignalDate)}，实际成交日 ${date(t.sellDate)}。</div>`;history.replaceState(null,'',`#trade=${t.tradeNo}`);renderControls();setTimeout(()=>document.querySelector(`.trade-item[data-id="${t.tradeNo}"]`)?.scrollIntoView({block:'nearest'}),0)}
 function move(delta){if(!selected)return;const i=visible.findIndex(t=>t.tradeNo===selected.tradeNo),next=visible[i+delta];if(next)selectTrade(next)}
-const reasons=[...new Map(allTrades.map(t=>[t.exitReason,t.exitReasonCn])).entries()];$('reasonFilter').insertAdjacentHTML('beforeend',reasons.map(([v,n])=>`<option value="${safe(v)}">${safe(n)}</option>`).join(''));['search','reasonFilter','outcomeFilter','sortBy'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',applyFilters));$('tradeSelect').onchange=e=>selectTrade(allTrades.find(t=>t.tradeNo===Number(e.target.value)));$('prevTrade').onclick=()=>move(-1);$('nextTrade').onclick=()=>move(1);$('resetFilter').onclick=()=>{$('search').value='';$('reasonFilter').value='all';$('outcomeFilter').value='all';$('sortBy').value='time';applyFilters()};$('tradeChart').onclick=()=>selected&&window.open(selected.image,'_blank');document.addEventListener('keydown',e=>{if(e.target.matches('input,select'))return;if(e.key==='ArrowLeft')move(-1);if(e.key==='ArrowRight')move(1)});const requested=Number(location.hash.match(/trade=(\d+)/)?.[1]);selected=allTrades.find(t=>t.tradeNo===requested)||allTrades[0]||null;applyFilters();
+const strategies=[...new Map(allTrades.map(t=>[t.strategyId,t.strategyName])).entries()];$('strategyFilter').insertAdjacentHTML('beforeend',strategies.map(([v,n])=>`<option value="${safe(v)}">${safe(n)}</option>`).join(''));const reasons=[...new Map(allTrades.map(t=>[t.exitReason,t.exitReasonCn])).entries()];$('reasonFilter').insertAdjacentHTML('beforeend',reasons.map(([v,n])=>`<option value="${safe(v)}">${safe(n)}</option>`).join(''));['search','strategyFilter','reasonFilter','outcomeFilter','sortBy'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',applyFilters));$('tradeSelect').onchange=e=>selectTrade(allTrades.find(t=>t.tradeNo===Number(e.target.value)));$('prevTrade').onclick=()=>move(-1);$('nextTrade').onclick=()=>move(1);$('resetFilter').onclick=()=>{$('search').value='';$('strategyFilter').value='all';$('reasonFilter').value='all';$('outcomeFilter').value='all';$('sortBy').value='time';applyFilters()};$('tradeChart').onclick=()=>selected&&window.open(selected.image,'_blank');document.addEventListener('keydown',e=>{if(e.target.matches('input,select'))return;if(e.key==='ArrowLeft')move(-1);if(e.key==='ArrowRight')move(1)});const requested=Number(location.hash.match(/trade=(\d+)/)?.[1]);selected=allTrades.find(t=>t.tradeNo===requested)||allTrades[0]||null;applyFilters();
 </script></body></html>"""
     replacements = {
         "__TITLE__": html.escape(title), "__COUNT__": str(len(trades)),
@@ -412,16 +535,19 @@ const reasons=[...new Map(allTrades.map(t=>[t.exitReason,t.exitReasonCn])).entri
 
 def generate_trade_report(backtest_dir, adjusted_dir, raw_dir, output_dir,
                           security_master=None, symbol=None, limit=None,
-                          before=30, after=10):
+                          before=30, after=10, title=None,
+                          require_all_closed=True):
     """Generate the CSV, per-trade charts and a browsable HTML index."""
     backtest_dir, output_dir = Path(backtest_dir), Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     fills = pd.read_csv(backtest_dir / "fills.csv")
-    intents = pd.read_csv(backtest_dir / "intents.csv")
+    intents = load_or_rebuild_entry_intents(backtest_dir)
     exits = pd.read_csv(backtest_dir / "exit_reasons.csv")
     event_path = backtest_dir / "position_events.csv"
     events = pd.read_csv(event_path) if event_path.exists() else None
-    trades = build_round_trips(fills, intents, exits, events)
+    trades = build_round_trips(
+        fills, intents, exits, events,
+        require_all_closed=require_all_closed)
     if symbol:
         trades = trades[trades.symbol.eq(symbol)].copy()
     if limit is not None:
@@ -446,6 +572,12 @@ def generate_trade_report(backtest_dir, adjusted_dir, raw_dir, output_dir,
             stock_name=str(names.get(trade.symbol, "")), position_events=events,
             before=before, after=after,
         )
+    if "strategy_name" not in trades:
+        trades["strategy_name"] = trades.strategy_id.map({
+            "vcp_residual_v2": "VCP＋残差动量",
+            "alpha158_lite_low_turnover_v3": "Alpha158低频v3",
+        }).fillna(trades.strategy_id)
     trades.to_csv(output_dir / "trades_visualized.csv", index=False)
     return trades, write_html_index(
-        trades, output_dir, "VCP 残差动量策略逐笔交易 K 线复盘")
+        trades, output_dir,
+        title or "策略逐笔交易 K 线复盘")

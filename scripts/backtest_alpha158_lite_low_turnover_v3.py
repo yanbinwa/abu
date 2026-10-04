@@ -95,7 +95,9 @@ def annual_returns(curve, initial_cash=1_000_000.0):
 
 
 def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
-                     end_date):
+                     end_date, sync_dynamic_stops=False,
+                     position_add_policy=None,
+                     position_add_execution_mode="executable"):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -114,6 +116,13 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         max_positions=policy_config.target_positions))
     _seed_marks(executor, panel, first)
     risk = PortfolioRiskEngine(panel, risk_config)
+    add_coordinator = None
+    if position_add_policy is not None:
+        from abupy.AlphaBu.ABuPositionAddResearch import PositionAddCoordinator
+        add_coordinator = PositionAddCoordinator(
+            panel, position_add_policy, risk,
+            data_version="alpha158_position_add_v1",
+            execution_mode=position_add_execution_mode)
     features = Alpha158LiteFeatureEngine(panel, strategy_config)
     exits = Alpha158LiteExitEngine(panel, strategy_config)
     policy = Alpha158LiteLowTurnoverPolicy(policy_config)
@@ -185,6 +194,8 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                 exits.remove(fill.symbol)
                 entry_intents.pop(fill.symbol, None)
             else:
+                if fill.position_effect == "INCREASE":
+                    continue
                 intent = entry_intents[fill.symbol]
                 exits.register_entry(intent, fill, day)
         executor.process_close(day)
@@ -193,29 +204,48 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         if day >= last:
             continue
         event_symbols = set()
+        add_stop_overrides = {}
         for symbol in sorted(executor.positions):
             if any(order.side == "sell" and order.symbol == symbol
                    for order in executor.orders):
                 continue
             reason = exits.signal(day, symbol)
+            current_stop = (exits.current_stop_raw(day, symbol)
+                            if sync_dynamic_stops or add_coordinator is not None
+                            else None)
+            if sync_dynamic_stops:
+                if current_stop is not None:
+                    executor.update_position_stop(symbol, current_stop)
+            if add_coordinator is not None and current_stop is not None:
+                add_stop_overrides[symbol] = current_stop
             if reason:
                 event_symbols.add(symbol)
                 pending_exits.append((symbol, reason))
-        if (day-first) % policy_config.review_interval_sessions != 0:
-            continue
-        daily = grouped.get(int(panel.dates[day]), pd.DataFrame())
-        holding_sessions = {
-            symbol: day-exits.states[symbol].entry_day+1
-            for symbol in executor.positions if symbol in exits.states}
-        rank_exits, entry_symbols = policy.review(
-            daily, executor.positions, holding_sessions,
-            blocked_exits=event_symbols)
-        pending_exits.extend((symbol, "PERSISTENT_RANK_EXIT")
-                             for symbol in rank_exits)
-        lookup = {str(row.symbol): row._asdict()
-                  for row in daily.itertuples(index=False)}
-        pending_entries = [lookup[symbol] for symbol in entry_symbols
-                           if symbol in lookup]
+        if (day-first) % policy_config.review_interval_sessions == 0:
+            daily = grouped.get(int(panel.dates[day]), pd.DataFrame())
+            holding_sessions = {
+                symbol: day-exits.states[symbol].entry_day+1
+                for symbol in executor.positions if symbol in exits.states}
+            rank_exits, entry_symbols = policy.review(
+                daily, executor.positions, holding_sessions,
+                blocked_exits=event_symbols)
+            pending_exits.extend((symbol, "PERSISTENT_RANK_EXIT")
+                                 for symbol in rank_exits)
+            lookup = {str(row.symbol): row._asdict()
+                      for row in daily.itertuples(index=False)}
+            pending_entries = [lookup[symbol] for symbol in entry_symbols
+                               if symbol in lookup]
+        if add_coordinator is not None:
+            blocked_symbols = {symbol for symbol, _ in pending_exits}
+            blocked_trades = {
+                trade.trade_id
+                for trade in executor.position_ledger.active_trades()
+                if trade.symbol in blocked_symbols}
+            add_results = add_coordinator.evaluate_active(
+                executor, day, day+1, blocked_trades,
+                add_stop_overrides)
+            decisions.extend(item[3] for item in add_results
+                             if item[3] is not None)
 
     curve = executor.curve_frame()
     fills = executor.fills_frame()
@@ -260,6 +290,7 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "open_positions_end": int(len(executor.positions)),
         "pending_orders_end": int(len(executor.orders)),
         "slippage_bps": float(source_config.label_slippage_bps),
+        "dynamic_stop_sync": bool(sync_dynamic_stops),
         **trades,
         **holding_session_statistics(fills, panel),
     }
@@ -269,6 +300,16 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "exits": exit_rows, "selection": selection_rows,
         "orders": executor.order_history,
         "reservations": executor.reservation_history,
+        "policy_evaluations": (
+            list(add_coordinator.runner.evaluations.values())
+            if add_coordinator is not None else []),
+        "add_proposals": (
+            list(add_coordinator.runner.proposals.values())
+            if add_coordinator is not None else []),
+        "fill_allocations": list(executor.position_ledger.fill_allocations),
+        "position_lots": list(executor.position_ledger.lots.values()),
+        "lot_dispositions": list(executor.position_ledger.lot_dispositions),
+        "logical_trades": list(executor.position_ledger.logical_trades.values()),
     }
     return result, audit
 
@@ -291,6 +332,8 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=Path(
         "/Users/wjy/abu/backtests/alpha158_lite_low_turnover_v3"))
     parser.add_argument("--end-date", type=int, default=20260930)
+    parser.add_argument("--sync-dynamic-stops", action="store_true",
+                        help="publish executable trailing stops to risk sizing")
     args = parser.parse_args()
 
     source = load_alpha158_lite_config(args.source_config)
@@ -302,6 +345,7 @@ def main():
         "source": asdict(source), "policy": asdict(policy),
         "risk_config_sha256": risk.sha256,
         "execution": {"slippage_bps": 25.0, "mode": "pit_corrected"},
+        "dynamic_stop_sync": bool(args.sync_dynamic_stops),
         "parameter_search": False,
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -323,7 +367,8 @@ def main():
         args.signal_dir, args.research_dir, start_date=20200101,
         end_date=args.end_date)
     result, audit = run_low_turnover(
-        panel, scores, source, policy, risk, args.end_date)
+        panel, scores, source, policy, risk, args.end_date,
+        sync_dynamic_stops=args.sync_dynamic_stops)
     _save_audit(args.output_dir/policy.strategy_version, audit)
     annual_returns(audit["curve"]).to_csv(
         args.output_dir/"year_returns.csv", index=False)

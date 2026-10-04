@@ -7,7 +7,9 @@ from tempfile import TemporaryDirectory
 
 import pandas as pd
 
-from abupy.AlphaBu.ABuTradeVisualization import build_round_trips, write_html_index
+from abupy.AlphaBu.ABuTradeVisualization import (
+    build_round_trips, load_or_rebuild_entry_intents, write_html_index,
+)
 
 
 class TradeVisualizationTest(unittest.TestCase):
@@ -69,8 +71,44 @@ class TradeVisualizationTest(unittest.TestCase):
             page = path.read_text(encoding="utf-8")
         self.assertIn('id="tradeSelect"', page)
         self.assertIn('id="reasonFilter"', page)
+        self.assertIn('id="strategyFilter"', page)
         self.assertIn("0001_sz000001_20240103_20240110.png", page)
         self.assertIn("平安银行", page)
+
+    def test_rebuilds_alpha158_intent_and_ignores_open_position(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            pd.DataFrame([{
+                "intent_id": "alpha-buy", "strategy_id":
+                "alpha158_lite_low_turnover_v3", "strategy_version": 1,
+                "symbol": "sz000001", "side": "buy", "quantity": 100,
+                "created_asof": 20240102, "valid_session": 20240103,
+                "max_buy_price_raw": 10.5, "initial_stop_adjusted": 8.0,
+                "initial_stop_raw": 8.8, "planned_initial_r_per_share_raw": 1.2,
+                "planned_initial_r_cash": 120.0, "reason": "",
+            }]).to_csv(root / "orders.csv", index=False)
+            pd.DataFrame([{
+                "signal_asof": 20240102, "symbol": "sz000001",
+                "score": 0.25, "daily_rank": 8,
+                "risk_decision": "approved", "order_created": True,
+            }]).to_csv(root / "selection_decisions.csv", index=False)
+            intents = load_or_rebuild_entry_intents(root)
+        self.assertEqual(intents.iloc[0].signal_asof, 20240102)
+        self.assertAlmostEqual(intents.iloc[0].adjustment_factor_signal, 1.1)
+        self.assertIn("daily_rank", intents.iloc[0].metadata)
+
+        fills = pd.DataFrame([{
+            "intent_id": "alpha-buy", "date": 20240103,
+            "symbol": "sz000001", "side": "buy", "status": "filled",
+            "quantity": 100, "fill_price_raw": 10.0, "commission": 5.0,
+            "transfer_fee": 0.1, "stamp_tax": 0.0, "slippage_cost": 2.0,
+            "actual_initial_r_cash": 100.0,
+        }])
+        trades = build_round_trips(
+            fills, intents,
+            pd.DataFrame(columns=["date", "symbol", "reason"]),
+            require_all_closed=False)
+        self.assertTrue(trades.empty)
 
 
 if __name__ == "__main__":

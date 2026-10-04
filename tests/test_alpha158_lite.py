@@ -120,6 +120,12 @@ class Alpha158LiteTest(unittest.TestCase):
             intent, SimpleNamespace(fill_price_raw=intent.signal_price_raw), day)
         panel.close[day+1, 0] = intent.initial_stop_adjusted-.01
         self.assertEqual(exits.signal(day+1, intent.symbol), "INITIAL_STOP")
+        panel.exec_close = panel.exec_close.copy()
+        panel.exec_close[day+1, 0] = panel.close[day+1, 0] * 1.05
+        self.assertAlmostEqual(
+            exits.current_stop_raw(day+1, intent.symbol),
+            exits.states[intent.symbol].current_stop_adjusted * 1.05,
+            places=5)
 
     def test_config_loader_is_strict(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -111,6 +111,7 @@ scripts/
   audit_structured_fundamental_v4.py
   replay_structured_share_events_v4.py
   materialize_structured_share_capital_v4.py
+  audit_eligible_market_cap_coverage_v4.py
   audit_share_capital_conflicts_v4.py
   collect_baostock_pit_pilot_v4.py
   audit_baostock_pilot_v4.py
@@ -478,6 +479,8 @@ manifest至少包含：
 - 全市场5,448只证券冻结为28个不可变分片；并发采集因Baostock全局登录态发生失败，保留失败批次后改为单进程补采，28/28分片最终完整成功；
 - 本地价格层7,781,161个证券日逐日ST精确覆盖率100%，沪市3,428,093日、深市4,353,068日分别100%，未知日、重复记录、角色越界和股本派生均为0；
 - 已物化1,880日×5,448只证券的排除矩阵；`isST=1`与未知状态均不能进入候选池，ST字段不能参与排序；
+- 将ST排除应用到50只股本试点后，排除1,413个ST证券日，可选非ST价格日流通市值覆盖率由99.3629%升至99.9769%，总市值覆盖率100%，覆盖子门禁通过；
+- 6,374个可选证券日仍存在来源冲突，因此覆盖通过不等于股本勾稽通过；
 - M4继续失败关闭，M5—M10暂停，未运行因子收益或策略回测。
 
 ## 10. M5：经济主题、技术主题与横截面处理
@@ -866,3 +869,23 @@ v4开发只有在以下全部完成后才算工程完成：
 8. 历史失败结果完整保留；
 9. 历史门禁只决定是否进入前瞻，不产生实盘授权；
 10. 前瞻管道能持续保存当时可见数据和真实决策。
+
+## 20. 2026-10-04 全市场股本实施状态
+
+本轮已完成全市场 CNINFO 股本事件采集、不可变重放、资产负债表总股本回退和逐日总市值物化。实现入口包括：
+
+- `freeze_cninfo_share_universe_v4.py`、`collect_cninfo_share_chunk_v4.py`、`run_cninfo_share_chunks_v4.py` 和 `audit_cninfo_share_coverage_v4.py`；
+- `materialize_full_market_cap_panel_v4.py` 与 `freeze_fundamental_fallback_universe_v4.py`；
+- `collect_balance_fallback_chunk_v4.py`、`run_balance_fallback_chunks_v4.py` 和 `merge_balance_fallback_facts_v4.py`；
+- `probe_sse_xbrl_revision_v4.py`。
+
+当前事实状态：
+
+- 5,448只证券的55个 CNINFO 分片全部完成，取得209,664个股本事件；
+- CNINFO 单源证券覆盖率95.8700%，225只明确空响应中224只是历史退市股；
+- 资产负债表回退清单按真实缺失股票日冻结为1,902只，77/77分片完成，1,899只有总股本事实；
+- 非ST有效价格日的总市值覆盖率达到99.9622445960%，超过99.5%门槛；
+- 流通市值覆盖率仍为98.4264770672%，总/流通股本来源冲突门禁仍失败；
+- 上交所官方 XBRL 目录试点只暴露报告年度、类型和披露日，没有版本ID、修订日或前后版本关系，因此不能恢复历史原始版与更正版。
+
+因此后续顺序调整为：先决定历史修订数据路线（付费版本化结构化源，或从2026-10-04起只做前瞻版本积累），再扩大全市场利润表和现金流量表采集。未解决修订版本前，价值、质量和投资主题不得进入M5。

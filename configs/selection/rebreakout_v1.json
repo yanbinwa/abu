@@ -1,0 +1,10 @@
+{
+  "policy_id": "rebreakout",
+  "policy_version": "rebreakout_v1",
+  "lookback_sessions": 20,
+  "add_risk_budget_fraction": 0.00125,
+  "max_add_notional_fraction": 0.02,
+  "max_add_count": 1,
+  "max_gap_fraction": 0.03,
+  "priority": 80
+}

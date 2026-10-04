@@ -1,0 +1,26 @@
+{
+  "config_version": "cninfo_share_capital_full_v4",
+  "source_version": "cninfo_p_stock2215_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/cninfo_share_capital_full_raw",
+  "security_master": "/Users/wjy/abu/data/selection_research/security_master.csv",
+  "trading_sessions_source": "/Users/wjy/abu/data/csv/sh000300_20061002_20261002",
+  "history_start_date": "2006-10-02",
+  "history_end_date": "2026-09-30",
+  "chunk_size": 100,
+  "max_concurrency": 1,
+  "source_role": "primary_share_capital_candidate",
+  "fields": {
+    "total_shares": "F003N",
+    "circulating_a_shares": "F022N",
+    "announcement_date": "DECLAREDATE",
+    "economic_date": "VARYDATE",
+    "unit_scale": 10000.0
+  },
+  "strict_rules": {
+    "allow_overwrite": false,
+    "empty_response_is_missing_not_zero": true,
+    "minimum_symbols_with_events": 0.995,
+    "share_relative_tolerance": 0.005
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

@@ -157,6 +157,12 @@ class VCPStrategyTest(unittest.TestCase):
         engine.signal(day+2, "sz000001")
         self.assertGreaterEqual(engine.states["sz000001"].current_stop_adjusted,
                                 raised)
+        panel.exec_close = panel.exec_close.copy()
+        panel.exec_close[day+2, 0] = panel.close[day+2, 0] * 1.1
+        self.assertAlmostEqual(
+            engine.current_stop_raw(day+2, "sz000001"),
+            engine.states["sz000001"].current_stop_adjusted * 1.1,
+            places=5)
 
     def test_exit_profiles_execute_initial_stop_and_isolate_rules(self):
         panel, day = make_vcp_panel()

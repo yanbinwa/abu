@@ -1,0 +1,10 @@
+{
+  "policy_id": "turtle_atr",
+  "policy_version": "turtle_atr_add_v1",
+  "atr_multiple": 0.5,
+  "add_risk_budget_fraction": 0.00125,
+  "max_add_notional_fraction": 0.02,
+  "max_add_count": 1,
+  "max_gap_fraction": 0.03,
+  "priority": 70
+}

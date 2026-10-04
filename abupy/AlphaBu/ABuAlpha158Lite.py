@@ -688,5 +688,15 @@ class Alpha158LiteExitEngine(object):
             return "STAGNATION"
         return None
 
+    def current_stop_raw(self, day, symbol):
+        """Map the current adjusted stop into that day's raw price space."""
+        state = self.states[symbol]
+        column = self.panel.symbol_index[symbol]
+        adjusted = float(self.panel.close[day, column])
+        raw = float(self.panel.exec_close[day, column])
+        if not np.isfinite(adjusted) or adjusted <= 0 or not np.isfinite(raw):
+            return None
+        return float(state.current_stop_adjusted * raw / adjusted)
+
     def remove(self, symbol):
         self.states.pop(symbol, None)

@@ -128,3 +128,46 @@ M4验证全市场数据是否足以进入单因子研究。工程能力通过和
 主覆盖门禁已经重新生成，不再包含 `shanghai_historical_st_incomplete`。当前正式阻断码为 `normalized_fundamental_facts_missing`、`total_shares_and_total_market_cap_not_materialized` 和 `economic_theme_coverage_unavailable`。报告路径为 `/Users/wjy/abu/data/selection_research/multifactor_coverage_gate_20261003_v2.json`，SHA256 为 `e84023246e95a560d1052cacef0512bb34eaf0df1ae2687c4e10c464beb98008`。
 
 全市场ST采集、审计、矩阵加载和门禁更新完成后，仓库全量217项测试、Python编译、`git diff --check` 以及含外部历史产物的M0冻结校验全部通过。
+
+## 可选股票池市值覆盖重算（2026-10-04）
+
+原始66,237个价格证券日的流通市值覆盖率99.3629%，缺失全部来自 `sh600145` 的422日。应用已审计的逐日ST排除后，共排除1,413个ST证券日；422个缺失日中407日被正确排除，剩余15个非ST日继续保留为缺失，未作任何数值回填。
+
+可选非ST价格日共64,824个：总市值覆盖率100%，流通市值覆盖率99.9768604221%；沪市流通市值覆盖率99.9507372984%，深市100%，均超过99.5%冻结门槛。因此 `PASS_ELIGIBLE_MARKET_CAP_COVERAGE` 成立，原始全市场99.3629%的统计仍完整保留。
+
+覆盖通过没有消除来源冲突：可选样本仍有6,374个冲突证券日，其中流通股本冲突5,523日、总股本冲突1,106日，勾稽状态保持 `BLOCKED_SHARE_RECONCILIATION`。
+
+审计报告：`/Users/wjy/abu/data/selection_research/eligible_market_cap_coverage_20261004_v2.json`，SHA256 为 `8b2058bbc10591021493835529563c073caabdb667b6c74ecafb948c24df2025`。
+
+## 全市场总股本、总市值与修订能力复核（2026-10-04）
+
+全市场5,448只证券已冻结为55个 CNINFO 股本分片并以单并发完成采集。55/55分片成功，取得209,664个规范化股本事件，事件主键重复、非法整数股数和分片越界均为0。5,223只有事件，225只明确空响应，单源证券覆盖率95.8700440529%；空响应中224只是历史退市股，另1只是2026-09-30新上市证券。采集完整性通过，但单源99.5%事实覆盖未通过。
+
+股本采集审计：`/Users/wjy/abu/data/selection_research/cninfo_share_capital_coverage_20261004_v1.json`，SHA256 为 `51b24c2fec39e8bf68b523c4cd8f01c5a058660ab95088f438983434eec98e4d`。
+
+首次全市场逐日物化在7,522,102个非ST有效价格日上得到总市值覆盖率98.4113350231%。随后按真实缺失股票日冻结1,902只资产负债表回退证券，其中1,684只是上市股且1,664只仅缺IPO首日，218只是退市股。77/77个结构化资产负债表分片完成，合并253,508个字段事实和62,576个 `SHARE_CAPITAL` 事实；1,899只有总股本事实，3只为经同一资产负债表端点确认的明确空响应。所有事实仍标记历史修订版本不完整。
+
+回退合并报告：`/Users/wjy/abu/data/selection_research/fundamental_balance_fallback_merged_20261004_v1/merge_report.json`，SHA256 为 `22b6742b4635d702aa32c81e0b3647fd426167d380f636127aff7eb7614813ca`。
+
+二次物化后：
+
+- 总市值覆盖率99.9622445960%，超过99.5%门槛；未覆盖2,840日仅来自 `sh600291`、`sh600837`、`sz000627`；
+- 流通市值覆盖率98.4264770672%，仍低于99.5%；
+- 主股本与资产负债表总股本有264,916个合格冲突日；CNINFO流通股本与本地日线流通股本有528,010个合格冲突日；
+- 主来源优先、辅来源仅补缺；冲突没有静默择优或放宽容差。
+
+总市值面板：`/Users/wjy/abu/data/selection_research/full_market_cap_panel_20261004_v3/total_market_cap_panel_v4.npz`，SHA256 为 `335fdc0cdd73fa523d844e96670158b14c74fcaddac2cb6234013d22f89634ab`。覆盖报告SHA256为 `773760493c412a5ba45a2382d6d45fe406df30d352a0064ba4feca03e388c8e6`。
+
+对上交所官方 XBRL 目录的3只退市证券试点取得22条定期报告记录，接口字段只有证券、年度、报告类型、报告名称和实际披露日；没有版本ID、修订日或前后版本关系，同一报告身份也没有多版本记录。该目录可以证明披露时间，但不能证明或恢复历史原始版和更正版，修订能力门禁保持阻断。
+
+官方 XBRL 能力报告：`/Users/wjy/abu/data/selection_research/sse_xbrl_revision_probe_20261004_v1/revision_capability_report.json`，SHA256 为 `82435aa4c8a77b42146b529fd7bc51a9786a49018f9440754df40516b07b5de2`。
+
+主覆盖报告已改为独立子门禁，不再列出 `total_shares_and_total_market_cap_not_materialized`。当前阻断码为：
+
+1. `normalized_fundamental_facts_missing`；
+2. `historical_fundamental_revision_versions_incomplete`；
+3. `share_market_cap_reconciliation_conflicts`；
+4. `float_shares_and_float_market_cap_below_threshold`；
+5. `economic_theme_coverage_unavailable`。
+
+主覆盖报告：`/Users/wjy/abu/data/selection_research/multifactor_coverage_gate_20261004_v4.json`，SHA256 为 `193fc5ac6016c645af9449f4555d177e6a4255ed3af10dc2578cf5131a6d0590`。M4继续失败关闭，M5及策略回测未启动。

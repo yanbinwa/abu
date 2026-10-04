@@ -97,6 +97,10 @@ class RiskDecision:
     reason_codes: tuple[str, ...]
     config_sha256: str
     stress_losses: dict
+    quantity_symbol_headroom: int = 0
+    quantity_notional_cap: int = 0
+    quantity_trade_add_risk: int = 0
+    trade_add_risk_headroom_cash: float = 0.0
 
     def to_dict(self):
         return asdict(self)
@@ -157,22 +161,48 @@ class PortfolioRiskEngine(object):
 
     def _portfolio(self, executor, day, candidate=None):
         rows = []
-        for symbol, position in sorted(executor.positions.items()):
-            column = self.panel.symbol_index[symbol]
-            mark = self._mark(executor, day, column)
-            open_risk = max(0.0, mark -
-                            float(position.initial_stop_raw or mark)) * position.quantity
-            rows.append({
-                "symbol": symbol, "quantity": position.quantity,
-                "market_value": mark * position.quantity,
-                "industry": self._industry(day, column),
-                "beta": self.beta_for(day, column),
-                "open_risk": open_risk,
-                "initial_r_cash": position.initial_r_cash_frozen,
-                "has_stop": position.initial_stop_raw is not None,
-                "limit_fraction": self._limit_fraction(day, column),
-                "pending": False,
-            })
+        ledger = getattr(executor, "position_ledger", None)
+        ledger_trades = ledger.active_trades() if ledger is not None else []
+        if ledger_trades:
+            for trade in ledger_trades:
+                symbol = trade.symbol
+                column = self.panel.symbol_index[symbol]
+                mark = self._mark(executor, day, column)
+                quantity = ledger.quantity_for_trade(trade.trade_id)
+                stop = trade.current_stop_raw
+                lots = ledger.lots_for_trade(trade.trade_id)
+                rows.append({
+                    "symbol": symbol, "trade_id": trade.trade_id,
+                    "quantity": quantity, "market_value": mark * quantity,
+                    "industry": self._industry(day, column),
+                    "beta": self.beta_for(day, column),
+                    "open_risk": max(0.0, mark-float(stop or mark))*quantity,
+                    "initial_r_cash": trade.initial_r_cash_frozen,
+                    "has_stop": stop is not None,
+                    "limit_fraction": self._limit_fraction(day, column),
+                    "pending": False,
+                    "is_add": all(lot.position_effect == "INCREASE" for lot in lots),
+                    "latest_fill_date": max((lot.fill_date for lot in lots), default=0),
+                })
+        else:
+            for symbol, position in sorted(executor.positions.items()):
+                column = self.panel.symbol_index[symbol]
+                mark = self._mark(executor, day, column)
+                executable_stop = (position.current_stop_raw
+                                   if position.current_stop_raw is not None
+                                   else position.initial_stop_raw)
+                open_risk = max(0.0, mark -
+                                float(executable_stop or mark)) * position.quantity
+                rows.append({
+                    "symbol": symbol, "trade_id": "", "quantity": position.quantity,
+                    "market_value": mark * position.quantity,
+                    "industry": self._industry(day, column),
+                    "beta": self.beta_for(day, column), "open_risk": open_risk,
+                    "initial_r_cash": position.initial_r_cash_frozen,
+                    "has_stop": executable_stop is not None,
+                    "limit_fraction": self._limit_fraction(day, column),
+                    "pending": False, "is_add": False, "latest_fill_date": 0,
+                })
         for order in sorted(executor.orders, key=lambda item: item.order_id):
             if order.side != "buy":
                 continue
@@ -191,6 +221,9 @@ class PortfolioRiskEngine(object):
                 "has_stop": order.initial_stop_raw is not None,
                 "limit_fraction": self._limit_fraction(day, column),
                 "pending": True,
+                "trade_id": order.target_trade_id,
+                "is_add": order.position_effect == "INCREASE",
+                "latest_fill_date": 0,
             })
         if candidate is not None and candidate["quantity"] > 0:
             rows.append(candidate)
@@ -285,7 +318,12 @@ class PortfolioRiskEngine(object):
                            risk_per_share) if risk_per_share > 0 else 0
         requested = (_lots(requested_quantity) if requested_quantity is not None
                      else quantity_r)
-        quantity_symbol = _lots(equity * self.config.max_symbol_weight / max_price)
+        rows = self._portfolio(executor, day)
+        existing_symbol_value = sum(row["market_value"] for row in rows
+                                    if row["symbol"] == intent.symbol)
+        quantity_symbol = _lots(max(
+            0.0, equity * self.config.max_symbol_weight-existing_symbol_value
+        ) / max_price)
         quantity_gross = _lots(max(0.0, equity * self.config.max_gross_exposure -
                                    gross) / max_price)
         start = max(0, day - 19)
@@ -314,9 +352,36 @@ class PortfolioRiskEngine(object):
         else:
             quantity_portfolio = quantity_industry = quantity_same_day = 0
 
+        effect = intent.position_effect or "OPEN"
+        quantity_notional = requested
+        quantity_trade_add = requested
+        trade_add_headroom = 0.0
+        if effect == "INCREASE":
+            notional_cap = float(intent.metadata.get("notional_cash_cap", 0.0))
+            quantity_notional = _lots(notional_cap / max_price) if notional_cap > 0 else 0
+            ledger = getattr(executor, "position_ledger", None)
+            trade = (ledger.logical_trades.get(intent.trade_id)
+                     if ledger is not None else None)
+            if trade is None or trade.status != "ACTIVE":
+                reason.append("TARGET_TRADE_NOT_ACTIVE")
+                quantity_trade_add = 0
+            else:
+                proposed_budget = float(intent.metadata.get(
+                    "risk_budget_cash_cap", trade.add_risk_budget_cash_frozen))
+                if not trade.add_risk_budget_cash_frozen and proposed_budget > 0:
+                    ledger.configure_add_risk_budget(intent.trade_id, proposed_budget)
+                    trade = ledger.logical_trades[intent.trade_id]
+                trade_add_headroom = max(
+                    0.0, trade.add_risk_budget_cash_frozen -
+                    trade.filled_add_risk_cash_frozen -
+                    trade.reserved_add_risk_cash)
+                quantity_trade_add = (_lots(trade_add_headroom / risk_per_share)
+                                      if risk_per_share > 0 else 0)
+
         pre_stress = min(requested, quantity_r, quantity_symbol, quantity_gross,
                          quantity_capacity, quantity_cash, quantity_portfolio,
-                         quantity_industry, quantity_same_day)
+                         quantity_industry, quantity_same_day,
+                         quantity_notional, quantity_trade_add)
         pre_stress = _lots(pre_stress)
         stress_budget = equity * self.config.max_stress_loss_fraction
 
@@ -349,7 +414,7 @@ class PortfolioRiskEngine(object):
             "MARKET_7", "INDUSTRY_10", "MARKET_5_PLUS_INDUSTRY_5", "GAP_2R")}
         decisive = max(approval_losses, key=approval_losses.get)
         final = min(pre_stress, quantity_stress)
-        caps = [
+        pre_stress_caps = [
             (quantity_r, "SINGLE_TRADE_RISK"),
             (quantity_symbol, "MAX_SYMBOL_WEIGHT"),
             (quantity_gross, "MAX_GROSS_EXPOSURE"),
@@ -358,10 +423,13 @@ class PortfolioRiskEngine(object):
             (quantity_portfolio, "PORTFOLIO_OPEN_RISK"),
             (quantity_industry, "INDUSTRY_OPEN_RISK"),
             (quantity_same_day, "SAME_DAY_NEW_RISK"),
-            (quantity_stress, "STRESS_LOSS"),
+            (quantity_notional, "ADD_NOTIONAL_CAP"),
+            (quantity_trade_add, "TRADE_ADD_RISK_BUDGET"),
         ]
-        reason.extend(code for quantity, code in caps
-                      if quantity == final and quantity < requested)
+        reason.extend(code for quantity, code in pre_stress_caps
+                      if quantity == pre_stress and quantity < requested)
+        if pre_stress > 0 and quantity_stress < pre_stress:
+            reason.append("STRESS_LOSS")
         decision_name = ("rejected" if final < 100 else
                          "reduced" if final < requested else "approved")
         if final < 100 and not reason:
@@ -383,6 +451,10 @@ class PortfolioRiskEngine(object):
             max_stress_loss_cash=max(approval_losses.values()),
             decisive_scenario=decisive, reason_codes=tuple(dict.fromkeys(reason)),
             config_sha256=self.config.sha256, stress_losses=stress,
+            quantity_symbol_headroom=quantity_symbol,
+            quantity_notional_cap=quantity_notional,
+            quantity_trade_add_risk=quantity_trade_add,
+            trade_add_risk_headroom_cash=trade_add_headroom,
         )
         self.decisions.append(result)
         return result
@@ -423,20 +495,24 @@ class PortfolioRiskEngine(object):
         initial_codes, initial_stress = breaches(rows)
         remaining = list(rows)
         selected = []
-        for row in sorted(rows, key=lambda item: (-item["open_risk"],
-                                                   -item["market_value"],
-                                                   item["symbol"])):
+        for row in sorted(rows, key=lambda item: (
+                0 if item.get("is_add") else 1,
+                -item["open_risk"], -item.get("latest_fill_date", 0),
+                item.get("trade_id", ""), item["symbol"])):
             codes, _ = breaches(remaining)
             if not codes:
                 break
             selected.append(row)
-            remaining = [item for item in remaining if item["symbol"] != row["symbol"]]
+            remaining = [item for item in remaining
+                         if not (item["symbol"] == row["symbol"] and
+                                 item.get("trade_id", "") == row.get("trade_id", ""))]
         intents = tuple(
             TradeIntent(
                 intent_id=make_record_id("de-risk", int(self.panel.dates[day]),
                                          row["symbol"]),
                 strategy_id="portfolio_risk", strategy_version=self.config.risk_version,
                 signal_asof=int(self.panel.dates[day]), symbol=row["symbol"], side="sell",
+                trade_id=row.get("trade_id", ""), position_effect="CLOSE",
                 metadata={"reason_codes": initial_codes,
                           "requested_quantity": int(row["quantity"])},
             ) for row in selected
@@ -474,6 +550,7 @@ class PortfolioRiskEngine(object):
             intent, quantity, int(self.panel.dates[entry_day]),
             max_buy_price_raw=max_price,
             planned_risk_per_share=decision.planned_risk_per_share,
+            portfolio_equity_asof=decision.equity,
         )
         return order, reservation, decision
 

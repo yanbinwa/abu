@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 from dataclasses import dataclass
 from dataclasses import fields
 from pathlib import Path
@@ -19,6 +20,10 @@ from .ABuSecurityLifecycle import accounting_mark
 from .ABuTradeIntent import (
     ApprovedOrder, Fill, Position, PositionEvent, Reservation, TradeIntent,
     make_record_id,
+)
+from .ABuPositionLedger import (
+    PositionLedger, fill_id as make_fill_id,
+    logical_add_order_id as make_logical_add_order_id,
 )
 
 
@@ -74,6 +79,7 @@ class PortfolioExecutor(object):
         self._share_receivables = {}
         self.limit_references = limit_references or LimitReferenceStore()
         self.limit_audit = []
+        self.position_ledger = PositionLedger()
 
     def _fees(self, quantity, price, side):
         gross = quantity * price
@@ -87,17 +93,63 @@ class PortfolioExecutor(object):
     def available_cash(self):
         return self.cash - self.reserved_cash
 
+    def update_position_stop(self, symbol, current_stop_raw):
+        """Publish an executable close-based stop to portfolio risk state."""
+        position = self.positions.get(symbol)
+        if position is None:
+            return False
+        value = float(current_stop_raw)
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError("current stop must be finite and positive")
+        self.positions[symbol] = Position(
+            **{**position.__dict__, "current_stop_raw": value})
+        for trade in self.position_ledger.active_trades(symbol):
+            self.position_ledger.update_trade_stop(trade.trade_id, value)
+        return True
+
     def approve_order(self, intent: TradeIntent, quantity: int,
                       valid_session: int, max_buy_price_raw=None,
-                      planned_risk_per_share=0.0):
+                      planned_risk_per_share=0.0, portfolio_equity_asof=0.0):
         if quantity <= 0:
             raise ValueError("quantity must be positive")
         if intent.side == "buy" and quantity % 100:
             raise ValueError("buy quantity must be a positive board lot")
-        order_id = make_record_id(
-            "order", intent.intent_id, valid_session, quantity,
-            max_buy_price_raw, len(self.orders),
-        )
+        if (intent.side == "sell" and not intent.trade_id and
+                intent.symbol in self.positions):
+            self.position_ledger.sync_legacy_position(
+                self.positions[intent.symbol])
+        lineage_explicit = bool(
+            intent.logical_order_id or intent.trade_id or intent.position_effect or
+            intent.source_policy_id or intent.proposal_id)
+        if not lineage_explicit:
+            logical_id = make_record_id(
+                "order", intent.intent_id, valid_session, quantity,
+                max_buy_price_raw, len(self.orders))
+            order_id = logical_id
+        elif intent.logical_order_id:
+            logical_id = intent.logical_order_id
+        elif intent.position_effect == "INCREASE" and intent.trade_id:
+            trade = self.position_ledger.logical_trades.get(intent.trade_id)
+            sequence = (trade.add_count + 1) if trade is not None else 1
+            logical_id = make_logical_add_order_id(
+                intent.trade_id, intent.signal_asof, sequence)
+        else:
+            logical_id = make_record_id(
+                "logical-order", intent.intent_id, valid_session, quantity,
+                max_buy_price_raw, len(self.orders))
+        if any(item.logical_order_id == logical_id for item in self.order_history):
+            rejection = Reservation(
+                reservation_id=make_record_id("duplicate-order", logical_id),
+                intent_id=intent.intent_id, reserved_cash=0.0,
+                reserved_risk=0.0, reserved_industry_risk=0.0,
+                reserved_same_day_risk=0.0, reserved_stress_loss=0.0,
+                expires_on=int(valid_session), decision="rejected",
+                reason_codes=("DUPLICATE_ADD_REQUEST",),
+            )
+            self.reservation_history.append(rejection)
+            return None, rejection
+        if lineage_explicit:
+            order_id = make_record_id("physical-order", logical_id)
         planned_risk_per_share = float(planned_risk_per_share or 0.0)
         order = ApprovedOrder(
             order_id=order_id, intent_id=intent.intent_id,
@@ -112,6 +164,17 @@ class PortfolioExecutor(object):
             initial_stop_raw=intent.initial_stop_raw,
             planned_initial_r_per_share_raw=planned_risk_per_share,
             planned_initial_r_cash=planned_risk_per_share * quantity,
+            target_trade_id=intent.trade_id,
+            allocation_id=intent.allocation_id,
+            position_effect=intent.position_effect,
+            source_policy_id=intent.source_policy_id,
+            source_policy_version=intent.source_policy_version,
+            policy_evaluation_id=intent.policy_evaluation_id,
+            proposal_id=intent.proposal_id,
+            logical_order_id=logical_id, physical_order_id=order_id,
+            signal_price_adjusted=intent.signal_price_adjusted,
+            adjustment_factor_signal=intent.adjustment_factor_signal,
+            portfolio_equity_asof=float(portfolio_equity_asof or 0.0),
         )
         reserved = 0.0
         if order.side == "buy":
@@ -142,6 +205,30 @@ class PortfolioExecutor(object):
         self.order_history.append(order)
         self.reservations[order.order_id] = reservation
         self.reservation_history.append(reservation)
+        ledger_snapshot = copy.deepcopy(self.position_ledger)
+        try:
+            trade_id_value = self.position_ledger.register_order(order)
+            if order.side == "sell" and self.position_ledger.active_trades(order.symbol):
+                self.position_ledger.reserve_sell(
+                    order.logical_order_id, trade_id_value, order.quantity,
+                    int(intent.signal_asof), int(valid_session))
+        except ValueError:
+            self.position_ledger = ledger_snapshot
+            self.orders.remove(order)
+            self.order_history.pop()
+            self.reservations.pop(order.order_id, None)
+            self.reservation_history.pop()
+            self.reserved_cash = max(0.0, self.reserved_cash - reserved)
+            rejection = Reservation(
+                reservation_id=make_record_id("reservation-rejected", order_id),
+                intent_id=intent.intent_id, reserved_cash=0.0,
+                reserved_risk=0.0, reserved_industry_risk=0.0,
+                reserved_same_day_risk=0.0, reserved_stress_loss=0.0,
+                expires_on=int(valid_session), decision="rejected",
+                reason_codes=("INVALID_TRADE_LIFECYCLE_OR_T1",),
+            )
+            self.reservation_history.append(rejection)
+            return None, rejection
         return order, reservation
 
     def _release(self, order):
@@ -260,8 +347,21 @@ class PortfolioExecutor(object):
             execution_limit_model_version=limit_model,
             limit_reference_quality=reference_quality,
             limit_reason_codes=tuple(limit_reasons),
+            fill_id=make_fill_id(order.physical_order_id or order.order_id,
+                                 int(self.panel.dates[day])),
+            target_trade_id=order.target_trade_id,
+            allocation_id=order.allocation_id,
+            position_effect=order.position_effect,
+            source_policy_id=order.source_policy_id,
+            source_policy_version=order.source_policy_version,
+            policy_evaluation_id=order.policy_evaluation_id,
+            proposal_id=order.proposal_id,
+            logical_order_id=order.logical_order_id,
+            physical_order_id=order.physical_order_id or order.order_id,
         )
         self.fills.append(fill)
+        if status in ("rejected", "expired", "cancelled"):
+            self.position_ledger.cancel_order(order, status)
         return fill
 
     def _fill_buy(self, order, day):
@@ -297,10 +397,17 @@ class PortfolioExecutor(object):
                 order, day, "rejected", "SLIPPAGE_EXCEEDS_LIMIT", rule_id,
                 limit_model, reference_quality, limit_reasons
             )
-        if order.symbol in self.positions:
+        effect = order.position_effect or "OPEN"
+        if effect == "INCREASE":
+            trade = self.position_ledger.logical_trades.get(order.target_trade_id)
+            if trade is None or trade.status != "ACTIVE":
+                self._release(order)
+                return self._record_unfilled(
+                    order, day, "rejected", "TARGET_TRADE_NOT_ACTIVE")
+        elif order.symbol in self.positions and not order.target_trade_id:
             self._release(order)
             return self._record_unfilled(order, day, "rejected", "DUPLICATE_POSITION")
-        if (self.config.max_positions is not None and
+        if (effect != "INCREASE" and self.config.max_positions is not None and
                 len(self.positions) >= self.config.max_positions):
             self._release(order)
             return self._record_unfilled(order, day, "rejected", "MAX_POSITIONS")
@@ -311,15 +418,8 @@ class PortfolioExecutor(object):
             return self._record_unfilled(order, day, "rejected", "INSUFFICIENT_CASH")
         self.cash -= cost
         initial_r = max(0.0, price - float(order.initial_stop_raw or price))
-        self.positions[order.symbol] = Position(
-            symbol=order.symbol, quantity=order.quantity,
-            entry_date=int(self.panel.dates[day]), entry_price_raw=price,
-            total_cost=cost, strategy_id=order.strategy_id,
-            strategy_version=order.strategy_version,
-            initial_stop_raw=order.initial_stop_raw,
-            initial_r_per_share_raw=initial_r,
-            initial_r_cash_frozen=initial_r * order.quantity,
-        )
+        physical_fill_id = make_fill_id(
+            order.physical_order_id or order.order_id, int(self.panel.dates[day]))
         fill = Fill(
             order_id=order.order_id, intent_id=order.intent_id,
             date=int(self.panel.dates[day]), symbol=order.symbol, side="buy",
@@ -334,7 +434,20 @@ class PortfolioExecutor(object):
             execution_limit_model_version=limit_model,
             limit_reference_quality=reference_quality,
             limit_reason_codes=tuple(limit_reasons),
+            fill_id=physical_fill_id, target_trade_id=order.target_trade_id,
+            allocation_id=order.allocation_id, position_effect=effect,
+            source_policy_id=order.source_policy_id,
+            source_policy_version=order.source_policy_version,
+            policy_evaluation_id=order.policy_evaluation_id,
+            proposal_id=order.proposal_id,
+            logical_order_id=order.logical_order_id,
+            physical_order_id=order.physical_order_id or order.order_id,
         )
+        sellable_date = int(self.panel.dates[min(day + 1, len(self.panel.dates)-1)])
+        self.position_ledger.record_buy(
+            order, fill, sellable_date=sellable_date, session_index=day)
+        self.positions[order.symbol] = self.position_ledger.compatibility_position(
+            order.symbol)
         self.fills.append(fill)
         return fill
 
@@ -344,7 +457,16 @@ class PortfolioExecutor(object):
         if position is None:
             self._release(order)
             return self._record_unfilled(order, day, "rejected", "NO_POSITION")
-        if order.quantity > position.quantity:
+        target_quantity = position.quantity
+        if self.position_ledger.active_trades(order.symbol):
+            try:
+                target_trade = self.position_ledger.resolve_trade_id(
+                    order.symbol, order.target_trade_id)
+                target_quantity = self.position_ledger.quantity_for_trade(target_trade)
+            except ValueError:
+                self._release(order)
+                return self._record_unfilled(order, day, "rejected", "TARGET_TRADE_REQUIRED")
+        if order.quantity > target_quantity:
             self._release(order)
             return self._record_unfilled(order, day, "rejected", "QUANTITY_EXCEEDS_POSITION")
         opening = float(self.panel.exec_open[day, symbol])
@@ -371,17 +493,11 @@ class PortfolioExecutor(object):
         commission, transfer, stamp = self._fees(order.quantity, price, "sell")
         proceeds = order.quantity * price - commission - transfer - stamp
         self.cash += proceeds
-        if order.quantity == position.quantity:
-            self.positions.pop(order.symbol)
-        else:
-            remaining = position.quantity - order.quantity
-            self.positions[order.symbol] = Position(
-                **{**position.__dict__, "quantity": remaining,
-                   "total_cost": position.total_cost * remaining / position.quantity,
-                   "initial_r_cash_frozen": (position.initial_r_cash_frozen *
-                                             remaining / position.quantity)}
-            )
         self._release(order)
+        effect = order.position_effect or (
+            "CLOSE" if order.quantity == target_quantity else "REDUCE")
+        physical_fill_id = make_fill_id(
+            order.physical_order_id or order.order_id, int(self.panel.dates[day]))
         fill = Fill(
             order_id=order.order_id, intent_id=order.intent_id,
             date=int(self.panel.dates[day]), symbol=order.symbol, side="sell",
@@ -394,7 +510,33 @@ class PortfolioExecutor(object):
             execution_limit_model_version=limit_model,
             limit_reference_quality=reference_quality,
             limit_reason_codes=tuple(limit_reasons),
+            fill_id=physical_fill_id, target_trade_id=order.target_trade_id,
+            allocation_id=order.allocation_id, position_effect=effect,
+            source_policy_id=order.source_policy_id,
+            source_policy_version=order.source_policy_version,
+            policy_evaluation_id=order.policy_evaluation_id,
+            proposal_id=order.proposal_id,
+            logical_order_id=order.logical_order_id,
+            physical_order_id=order.physical_order_id or order.order_id,
         )
+        if self.position_ledger.active_trades(order.symbol):
+            self.position_ledger.record_sell(
+                order, fill, exit_reason=order.reason)
+            projected = self.position_ledger.compatibility_position(order.symbol)
+            if projected is None:
+                self.positions.pop(order.symbol, None)
+            else:
+                self.positions[order.symbol] = projected
+        elif order.quantity == position.quantity:
+            self.positions.pop(order.symbol)
+        else:
+            remaining = position.quantity - order.quantity
+            self.positions[order.symbol] = Position(
+                **{**position.__dict__, "quantity": remaining,
+                   "total_cost": position.total_cost * remaining / position.quantity,
+                   "initial_r_cash_frozen": (position.initial_r_cash_frozen *
+                                             remaining / position.quantity)}
+            )
         self.fills.append(fill)
         return fill
 
@@ -410,13 +552,21 @@ class PortfolioExecutor(object):
             position = self.positions.get(item["symbol"])
             if position is None:
                 continue
-            self.positions[item["symbol"]] = Position(
-                **{**position.__dict__,
-                   "quantity": position.quantity + item["quantity"],
-                   "entry_price_raw": position.entry_price_raw / item["factor"],
-                   "initial_stop_raw": (position.initial_stop_raw / item["factor"]
-                                        if position.initial_stop_raw is not None else None)}
-            )
+            if self.position_ledger.active_trades(item["symbol"]):
+                self.position_ledger.apply_stock_action(
+                    item["symbol"], item["factor"] - 1.0, date)
+                self.positions[item["symbol"]] = \
+                    self.position_ledger.compatibility_position(item["symbol"])
+            else:
+                self.positions[item["symbol"]] = Position(
+                    **{**position.__dict__,
+                       "quantity": position.quantity + item["quantity"],
+                       "entry_price_raw": position.entry_price_raw / item["factor"],
+                       "initial_stop_raw": (position.initial_stop_raw / item["factor"]
+                                            if position.initial_stop_raw is not None else None),
+                       "current_stop_raw": (position.current_stop_raw / item["factor"]
+                                            if position.current_stop_raw is not None else None)}
+                )
             self.position_events.append(PositionEvent(
                 date=date, symbol=item["symbol"], event_type="STOCK_DIVIDEND",
                 quantity_delta=item["quantity"], reason=item.get("reason", ""),
@@ -525,3 +675,19 @@ class PortfolioExecutor(object):
 
     def position_events_frame(self):
         return pd.DataFrame([item.__dict__ for item in self.position_events])
+
+    def fill_allocations_frame(self):
+        return pd.DataFrame([item.__dict__
+                             for item in self.position_ledger.fill_allocations])
+
+    def position_lots_frame(self):
+        return pd.DataFrame([item.__dict__
+                             for item in self.position_ledger.lots.values()])
+
+    def lot_dispositions_frame(self):
+        return pd.DataFrame([item.__dict__
+                             for item in self.position_ledger.lot_dispositions])
+
+    def logical_trades_frame(self):
+        return pd.DataFrame([item.__dict__
+                             for item in self.position_ledger.logical_trades.values()])

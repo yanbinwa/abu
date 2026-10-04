@@ -39,6 +39,8 @@ def main():
                         help="also run one unreset path spanning all requested years")
     parser.add_argument("--continuous-only", action="store_true",
                         help="run only unreset paths spanning all requested years")
+    parser.add_argument("--sync-dynamic-stops", action="store_true",
+                        help="publish executable trailing stops to risk sizing")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     core = load_vcp_core_config(ROOT / "configs/selection/vcp_core_v1.json")
@@ -58,7 +60,8 @@ def main():
             for experiment in args.experiments:
                 result, curve, fills, decisions, exits = run_vcp_backtest(
                     panel, year, experiment, args.slippage_bps,
-                    core, attention, risk, residual)
+                    core, attention, risk, residual,
+                    sync_dynamic_stops=args.sync_dynamic_stops)
                 rows.append(result)
                 directory = args.output_dir / "{}_{}".format(experiment, year)
                 directory.mkdir(parents=True, exist_ok=True)
@@ -79,6 +82,7 @@ def main():
                 start_date=min(args.years) * 10000 + 101,
                 end_date=max(args.years) * 10000 + 1231,
                 audit=audit,
+                sync_dynamic_stops=args.sync_dynamic_stops,
             )
             rows.append(result)
             directory = args.output_dir / (experiment + "_continuous")
@@ -107,6 +111,7 @@ def main():
         "experiments": args.experiments, "slippage_bps": args.slippage_bps,
         "continuous": args.continuous or args.continuous_only,
         "continuous_only": args.continuous_only,
+        "dynamic_stop_sync": bool(args.sync_dynamic_stops),
         "core_config": asdict(core), "core_config_sha256": core.sha256,
         "attention_config": asdict(attention),
         "attention_config_sha256": attention.sha256,

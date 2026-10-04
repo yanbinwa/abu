@@ -626,8 +626,11 @@ def structured_share_events(rows, symbol, raw_payload_sha256,
             announced = _structured_date(
                 row.get("DECLAREDATE"), "DECLAREDATE")
             changed = _structured_date(row.get("VARYDATE"), "VARYDATE")
-            total = float(row.get("F003N")) * scale
-            floated = float(row.get("F022N")) * scale
+            # Share capital is an integer count.  Round after applying the
+            # documented ten-thousand-share scale so binary float noise does
+            # not create fictitious fractional shares in immutable outputs.
+            total = float(round(float(row.get("F003N")) * scale))
+            floated = float(round(float(row.get("F022N")) * scale))
             if not np.isfinite(total) or not np.isfinite(floated):
                 raise ValueError("NON_FINITE_SHARE_CAPITAL")
             if total <= 0 or floated <= 0 or floated > total:

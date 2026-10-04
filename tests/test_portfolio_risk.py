@@ -116,6 +116,45 @@ class PortfolioRiskTest(unittest.TestCase):
         self.assertEqual(decision.decision, "rejected")
         self.assertEqual(decision.final_quantity, 0)
 
+    def test_zero_pre_stress_capacity_does_not_mislabel_stress(self):
+        panel = make_panel()
+        executor = PortfolioExecutor(panel, ExecutionConfig(initial_cash=100_000))
+        config = liberal(portfolio_open_risk_fraction=0.0001)
+        decision = PortfolioRiskEngine(panel, config).evaluate(
+            executor, make_intent(panel), 125, 126,
+            requested_quantity=9000)
+        self.assertEqual(decision.final_quantity, 0)
+        self.assertIn("PORTFOLIO_OPEN_RISK", decision.reason_codes)
+        self.assertNotIn("STRESS_LOSS", decision.reason_codes)
+
+    def test_published_trailing_stop_releases_open_risk_capacity(self):
+        panel = make_panel()
+        executor = PortfolioExecutor(panel, ExecutionConfig(
+            initial_cash=100_000, slippage_bps=0))
+        first = make_intent(panel, "sz000001", "first")
+        executor.approve_order(
+            first, 1000, int(panel.dates[126]),
+            first.metadata["max_buy_price_raw"], 1.3)
+        self.assertEqual(executor.process_open(126)[0].status, "filled")
+        engine = PortfolioRiskEngine(
+            panel, liberal(portfolio_open_risk_fraction=0.02))
+        before = engine.evaluate(
+            executor, make_intent(panel, "sz000002", "before"), 126, 127,
+            requested_quantity=1000)
+        current_mark = float(panel.exec_close[126, 0])
+        executor.update_position_stop("sz000001", current_mark-0.1)
+        after = engine.evaluate(
+            executor, make_intent(panel, "sz000002", "after"), 126, 127,
+            requested_quantity=1000)
+        self.assertGreater(after.quantity_portfolio_risk,
+                           before.quantity_portfolio_risk)
+        self.assertEqual(
+            executor.positions["sz000001"].initial_stop_raw,
+            first.initial_stop_raw)
+        self.assertAlmostEqual(
+            executor.positions["sz000001"].current_stop_raw,
+            current_mark-0.1)
+
     def test_missing_beta_and_unknown_industry_are_conservative(self):
         panel = make_panel(flat_market=True)
         engine = PortfolioRiskEngine(panel)

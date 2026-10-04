@@ -495,6 +495,16 @@ class VCPExitEngine(object):
             triggered.append("FIXED_HOLD")
         return next((reason for reason in self.PRIORITY if reason in triggered), None)
 
+    def current_stop_raw(self, day, symbol):
+        """Map the current adjusted stop into that day's raw price space."""
+        state = self.states[symbol]
+        column = self.panel.symbol_index[symbol]
+        adjusted = float(self.panel.close[day, column])
+        raw = float(self.panel.exec_close[day, column])
+        if not np.isfinite(adjusted) or adjusted <= 0 or not np.isfinite(raw):
+            return None
+        return float(state.current_stop_adjusted * raw / adjusted)
+
     def remove(self, symbol):
         self.states.pop(symbol, None)
 
@@ -542,7 +552,9 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                      slippage_bps=25.0, core_config=None,
                      attention_config=None, risk_config=None,
                      residual_config=None,
-                     start_date=None, end_date=None, audit=None):
+                     start_date=None, end_date=None, audit=None,
+                     sync_dynamic_stops=False, position_add_policy=None,
+                     position_add_execution_mode="executable"):
     """Run a C/D/E/F VCP experiment through the common executor."""
     if experiment not in VCP_EXPERIMENTS:
         raise ValueError("unknown VCP experiment")
@@ -570,6 +582,13 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
             executor.last_close[column] = valid[-1]
     strategy = VCPStrategy(panel, core_config, attention_config, residual_config)
     risk = PortfolioRiskEngine(panel, risk_config or RiskConfig())
+    add_coordinator = None
+    if position_add_policy is not None:
+        from .ABuPositionAddResearch import PositionAddCoordinator
+        add_coordinator = PositionAddCoordinator(
+            panel, position_add_policy, risk,
+            data_version="vcp_position_add_v1",
+            execution_mode=position_add_execution_mode)
     exits = make_vcp_exit_engine(panel, exit_profile)
     intent_lookup = {}
     entry_intent_by_symbol = {}
@@ -631,6 +650,8 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                 exits.remove(fill.symbol)
                 entry_intent_by_symbol.pop(fill.symbol, None)
             else:
+                if fill.position_effect == "INCREASE":
+                    continue
                 intent = intent_lookup[fill.intent_id]
                 exits.register_entry(intent, fill, day)
                 entry_intent_by_symbol[fill.symbol] = intent
@@ -638,6 +659,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
 
         pending_exits = []
         if day < last:
+            add_stop_overrides = {}
             for symbol in sorted(executor.positions):
                 if any(order.side == "sell" and order.symbol == symbol
                        for order in executor.orders):
@@ -646,10 +668,31 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                 if state is None:
                     continue
                 reason = exits.signal(day, symbol)
+                current_stop = (exits.current_stop_raw(day, symbol)
+                                if sync_dynamic_stops or add_coordinator is not None
+                                else None)
+                if sync_dynamic_stops:
+                    if current_stop is not None:
+                        executor.update_position_stop(symbol, current_stop)
+                if add_coordinator is not None and current_stop is not None:
+                    add_stop_overrides[symbol] = current_stop
                 if reason:
                     pending_exits.append((symbol, reason))
             pending_intents = strategy.generate_intents(day, variant)
             all_intents.extend(pending_intents)
+            if add_coordinator is not None:
+                blocked_symbols = {symbol for symbol, _ in pending_exits}
+                blocked_trades = {
+                    trade.trade_id
+                    for trade in executor.position_ledger.active_trades()
+                    if trade.symbol in blocked_symbols}
+                add_results = add_coordinator.evaluate_active(
+                    executor, day, day + 1, blocked_trades,
+                    add_stop_overrides)
+                decision_rows.extend(
+                    item[3] for item in add_results if item[3] is not None)
+                for intent in add_coordinator.intents:
+                    intent_lookup[intent.intent_id] = intent
 
     curve = executor.curve_frame()
     fills = executor.fills_frame()
@@ -682,6 +725,7 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
         "attention_config_sha256": strategy.attention.sha256,
         "residual_config_sha256": strategy.residual.sha256,
         "risk_config_sha256": risk.config.sha256,
+        "dynamic_stop_sync": bool(sync_dynamic_stops),
     }
     if audit is not None:
         audit.update({
@@ -694,5 +738,15 @@ def run_vcp_backtest(panel, year=None, experiment="e_core_r_event",
                 {"symbol": symbol, **position.__dict__}
                 for symbol, position in sorted(executor.positions.items())
             ],
+            "policy_evaluations": (
+                list(add_coordinator.runner.evaluations.values())
+                if add_coordinator is not None else []),
+            "add_proposals": (
+                list(add_coordinator.runner.proposals.values())
+                if add_coordinator is not None else []),
+            "fill_allocations": list(executor.position_ledger.fill_allocations),
+            "position_lots": list(executor.position_ledger.lots.values()),
+            "lot_dispositions": list(executor.position_ledger.lot_dispositions),
+            "logical_trades": list(executor.position_ledger.logical_trades.values()),
         })
     return result, curve, fills, decision_rows, exit_reasons

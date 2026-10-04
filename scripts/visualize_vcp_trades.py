@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate per-trade annotated K-line charts from an audited VCP run."""
+"""Generate per-trade annotated K-line charts from an audited strategy run."""
 from __future__ import annotations
 
 import argparse
@@ -29,11 +29,15 @@ def main():
                         help="sessions shown before the entry signal")
     parser.add_argument("--after", type=int, default=10,
                         help="sessions shown after the sell fill")
+    parser.add_argument("--title", help="HTML report title")
+    parser.add_argument("--allow-open", action="store_true",
+                        help="render closed trades while leaving open buys out")
     args = parser.parse_args()
     trades, index = generate_trade_report(
         args.backtest_dir, args.adjusted_dir, args.raw_dir, args.output_dir,
         security_master=args.security_master, symbol=args.symbol,
         limit=args.limit, before=args.before, after=args.after,
+        title=args.title, require_all_closed=not args.allow_open,
     )
     print("rendered {} round trips".format(len(trades)))
     print(index)

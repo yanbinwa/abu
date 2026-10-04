@@ -1,0 +1,18 @@
+{
+  "policy_id": "protected_winner",
+  "policy_version": "protected_winner_v1",
+  "min_holding_sessions": 5,
+  "min_sessions_since_last_fill": 5,
+  "min_profit_r": 1.0,
+  "min_move_atr21": 0.5,
+  "add_risk_budget_fraction": 0.00125,
+  "max_add_notional_fraction": 0.02,
+  "max_add_count": 1,
+  "max_gap_fraction": 0.03,
+  "broker_rate": 0.00025,
+  "min_commission": 5.0,
+  "transfer_rate": 0.00001,
+  "sell_stamp_rate": 0.0005,
+  "exit_slippage_bps": 25.0,
+  "priority": 100
+}

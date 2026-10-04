@@ -7,6 +7,23 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 
+VALID_POSITION_EFFECTS = ("OPEN", "INCREASE", "REDUCE", "CLOSE")
+
+
+def validate_side_effect(side: str, position_effect: str) -> None:
+    """Validate an explicit side/effect pair while accepting legacy blanks."""
+    if not position_effect:
+        return
+    allowed = {
+        "buy": ("OPEN", "INCREASE"),
+        "sell": ("REDUCE", "CLOSE"),
+    }
+    if position_effect not in VALID_POSITION_EFFECTS:
+        raise ValueError("unknown position_effect: {}".format(position_effect))
+    if position_effect not in allowed.get(side, ()):
+        raise ValueError("illegal side/position_effect combination")
+
+
 def make_record_id(prefix: str, *parts) -> str:
     encoded = "|".join(str(part) for part in parts).encode("utf-8")
     return "{}-{}".format(prefix, hashlib.sha256(encoded).hexdigest()[:20])
@@ -33,12 +50,22 @@ class TradeIntent:
     valid_for_sessions: int = 1
     r_definition_version: str = "none"
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    trade_id: str = ""
+    allocation_id: str = "GLOBAL"
+    position_effect: str = ""
+    source_policy_id: str = ""
+    source_policy_version: str = ""
+    policy_evaluation_id: str = ""
+    proposal_id: str = ""
+    logical_order_id: str = ""
+    schema_version: str = "position_lineage_v1"
 
     def __post_init__(self):
         if self.side not in ("buy", "sell"):
             raise ValueError("side must be buy or sell")
         if self.valid_for_sessions <= 0:
             raise ValueError("valid_for_sessions must be positive")
+        validate_side_effect(self.side, self.position_effect)
 
 
 @dataclass(frozen=True)
@@ -72,6 +99,19 @@ class ApprovedOrder:
     planned_initial_r_per_share_raw: float = 0.0
     planned_initial_r_cash: float = 0.0
     reason: str = ""
+    target_trade_id: str = ""
+    allocation_id: str = "GLOBAL"
+    position_effect: str = ""
+    source_policy_id: str = ""
+    source_policy_version: str = ""
+    policy_evaluation_id: str = ""
+    proposal_id: str = ""
+    logical_order_id: str = ""
+    physical_order_id: str = ""
+    schema_version: str = "position_lineage_v1"
+    signal_price_adjusted: float | None = None
+    adjustment_factor_signal: float | None = None
+    portfolio_equity_asof: float = 0.0
 
     def __post_init__(self):
         if self.side not in ("buy", "sell"):
@@ -85,6 +125,7 @@ class ApprovedOrder:
             raise ValueError("buy quantity must be a positive board lot")
         if self.side == "buy" and not self.max_buy_price_raw:
             raise ValueError("buy order requires max_buy_price_raw")
+        validate_side_effect(self.side, self.position_effect)
 
 
 @dataclass(frozen=True)
@@ -109,6 +150,22 @@ class Fill:
     execution_limit_model_version: str = "legacy_v1"
     limit_reference_quality: str = ""
     limit_reason_codes: tuple[str, ...] = ()
+    fill_id: str = ""
+    target_trade_id: str = ""
+    allocation_id: str = "GLOBAL"
+    position_effect: str = ""
+    source_policy_id: str = ""
+    source_policy_version: str = ""
+    policy_evaluation_id: str = ""
+    proposal_id: str = ""
+    logical_order_id: str = ""
+    physical_order_id: str = ""
+    schema_version: str = "position_lineage_v1"
+
+    def __post_init__(self):
+        if self.side not in ("buy", "sell"):
+            raise ValueError("side must be buy or sell")
+        validate_side_effect(self.side, self.position_effect)
 
 
 @dataclass(frozen=True)
@@ -121,6 +178,7 @@ class Position:
     strategy_id: str
     strategy_version: str
     initial_stop_raw: float | None = None
+    current_stop_raw: float | None = None
     initial_r_per_share_raw: float = 0.0
     initial_r_cash_frozen: float = 0.0
 

@@ -1,0 +1,14 @@
+{
+  "config_version": "sse_xbrl_revision_probe_v4",
+  "source_version": "sse_common_soa_xbrl_catalog_20261004",
+  "source_role": "revision_capability_probe_only",
+  "raw_root": "/Users/wjy/abu/data/selection_research/sse_xbrl_revision_probe_raw",
+  "endpoint": "https://query.sse.com.cn/commonSoaQuery.do",
+  "referer": "https://english.sse.com.cn/markets/dataservice/xbrl/",
+  "symbols": ["600068", "600291", "600837"],
+  "start_year": 2019,
+  "end_year": 2026,
+  "report_period_ids": "5000,1000,4000,4400",
+  "required_revision_fields": ["VERSION_ID", "REVISION_DATE", "SUPERSEDES_ID"],
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}
