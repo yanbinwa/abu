@@ -139,7 +139,8 @@ class SelectionPanelV2(object):
 
     @classmethod
     def from_research_data(cls, signal_dir, research_dir, start_date=20200101,
-                           end_date=20261002, long_suspension_sessions=20):
+                           end_date=20261002, long_suspension_sessions=20,
+                           st_exclusion_panel=None):
         signal_dir = Path(signal_dir)
         research_dir = Path(research_dir)
         base = SelectionPanel.from_research_data(
@@ -176,7 +177,13 @@ class SelectionPanelV2(object):
             events.extend(build_name_change_events(
                 pd.read_csv(name_path, dtype={"证券代码": str}), exchange="sz"
             ))
+        st_status_known = None
+        if st_exclusion_panel is not None:
+            st_status, st_status_known = cls._load_st_exclusion_panel(
+                st_exclusion_panel, base.dates, base.symbols)
+            base.st_status = st_status
         panel = cls(base, master, turnover=turnover,
+                    st_status_known=st_status_known,
                     lifecycle_events=events,
                     long_suspension_sessions=long_suspension_sessions)
         panel.lifecycle_events.extend(build_suspension_events(
@@ -187,6 +194,43 @@ class SelectionPanelV2(object):
             key=lambda item: (item.effective_date, item.symbol, item.event_type)
         )
         return panel
+
+    @staticmethod
+    def _load_st_exclusion_panel(path, dates, symbols):
+        with np.load(Path(path), allow_pickle=False) as payload:
+            source_role = payload["source_role"].tolist()
+            if source_role != ["st_exclusion_only"]:
+                raise ValueError("ST panel is not exclusion-only")
+            source_dates = payload["dates"].astype(np.int64)
+            source_symbols = payload["symbols"].astype(str)
+            known = payload["known"].astype(bool)
+            is_st = payload["is_st"].astype(bool)
+        expected = (len(source_dates), len(source_symbols))
+        if known.shape != expected or is_st.shape != expected:
+            raise ValueError("ST exclusion panel has inconsistent shape")
+        if np.any(is_st & ~known):
+            raise ValueError("ST exclusion panel marks unknown state as ST")
+        if len(np.unique(source_dates)) != len(source_dates) or \
+                len(np.unique(source_symbols)) != len(source_symbols):
+            raise ValueError("ST exclusion panel has duplicate axes")
+        date_index = {int(value): index
+                      for index, value in enumerate(source_dates)}
+        symbol_index = {str(value): index
+                        for index, value in enumerate(source_symbols)}
+        output_shape = (len(dates), len(symbols))
+        output_known = np.zeros(output_shape, dtype=bool)
+        output_st = np.zeros(output_shape, dtype=bool)
+        for row, day in enumerate(dates):
+            source_row = date_index.get(int(day))
+            if source_row is None:
+                continue
+            for column, symbol in enumerate(symbols):
+                source_column = symbol_index.get(str(symbol))
+                if source_column is None:
+                    continue
+                output_known[row, column] = known[source_row, source_column]
+                output_st[row, column] = is_st[source_row, source_column]
+        return output_st, output_known
 
     def field_available(self, field: str):
         if field == "amount":

@@ -1,0 +1,15 @@
+{
+  "mapping_version": "fundamental_structured_field_mapping_v4",
+  "allowed_unit_scales": [1.0],
+  "fields": {
+    "TOTAL_OPERATE_INCOME": {"standard_field": "revenue", "statement_types": ["income"], "value_kind": "cumulative"},
+    "OPERATE_COST": {"standard_field": "operating_cost", "statement_types": ["income"], "value_kind": "cumulative"},
+    "PARENT_NETPROFIT": {"standard_field": "parent_net_profit", "statement_types": ["income"], "value_kind": "cumulative"},
+    "NETCASH_OPERATE": {"standard_field": "operating_cash_flow", "statement_types": ["cashflow"], "value_kind": "cumulative"},
+    "CONSTRUCT_LONG_ASSET": {"standard_field": "capital_expenditure_cash", "statement_types": ["cashflow"], "value_kind": "cumulative"},
+    "TOTAL_ASSETS": {"standard_field": "total_assets", "statement_types": ["balance"], "value_kind": "instant"},
+    "TOTAL_LIABILITIES": {"standard_field": "total_liabilities", "statement_types": ["balance"], "value_kind": "instant"},
+    "TOTAL_PARENT_EQUITY": {"standard_field": "parent_equity", "statement_types": ["balance"], "value_kind": "instant"},
+    "SHARE_CAPITAL": {"standard_field": "total_shares", "statement_types": ["balance"], "value_kind": "instant"}
+  }
+}

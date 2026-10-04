@@ -1,0 +1,39 @@
+{
+  "strategy_version": "alpha158_multifactor_cost_aware_v4",
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING",
+  "minimum_history_sessions": 252,
+  "minimum_median_amount_20d": 20000000.0,
+  "unknown_st_policy": "exclude",
+  "universes": {
+    "size_controlled_primary": {
+      "small_cap_exclusion_fraction": 0.30,
+      "rounding": "floor",
+      "tie_break": "market_cap_then_symbol"
+    },
+    "all_eligible_sensitivity": {
+      "small_cap_exclusion_fraction": 0.0
+    },
+    "large_mid_sensitivity": {
+      "top_total_market_cap_fraction": 0.50,
+      "rounding": "ceil",
+      "tie_break": "negative_market_cap_then_symbol"
+    }
+  },
+  "coverage_gates": {
+    "lifecycle_and_st_known_min": 0.995,
+    "theme_daily_median_min": 0.80,
+    "theme_daily_p10_min": 0.70,
+    "total_market_cap_min": 0.995,
+    "float_market_cap_min": 0.995,
+    "shanghai_historical_st_required": true,
+    "share_market_cap_reconciliation_required": true,
+    "pit_boundary_revision_ttm_tests_required": true
+  },
+  "economic_themes": [
+    "value",
+    "quality",
+    "investment"
+  ],
+  "technical_theme": "technical_v1",
+  "parameter_search_performed": false
+}

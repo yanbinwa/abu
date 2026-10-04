@@ -1,0 +1,45 @@
+{
+  "config_version": "fundamental_structured_pit_v4",
+  "adapter_version": "akshare_1.18.21_structured_snapshot_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/fundamental_structured_raw",
+  "trading_sessions_source": "/Users/wjy/abu/data/csv/sh000300_20061002_20261002",
+  "pilot": {
+    "sample_size": 50,
+    "selection": "deterministic_exchange_board_listing_age_strata",
+    "listed_source": "/Users/wjy/abu/data/cache/akshare_cn_stock_info.csv",
+    "delisted_anchors": ["sz000013", "sh600145"]
+  },
+  "sources": {
+    "eastmoney_structured": {
+      "role": "primary_numeric_candidate",
+      "datasets": ["income", "balance", "cashflow"],
+      "announcement_date_field": "NOTICE_DATE",
+      "update_date_field": "UPDATE_DATE",
+      "availability_policy": "next_session_after_max_notice_update",
+      "historical_revision_versions_expected": false
+    },
+    "cninfo_share_change": {
+      "role": "primary_share_capital_candidate",
+      "dataset": "shares",
+      "announcement_date_field": "DECLAREDATE",
+      "effective_date_field": "VARYDATE"
+    }
+  },
+  "deferred": {
+    "cninfo_announcement_catalog": true,
+    "cninfo_pdf_extraction": true,
+    "reason": "structured_interfaces_first"
+  },
+  "strict_rules": {
+    "currency": "CNY",
+    "unit_scale": 1.0,
+    "missing_notice_date": "exclude",
+    "missing_update_date": "use_notice_date_and_flag_unknown_revision_scope",
+    "revision_history_incomplete": "block_full_historical_pit_gate",
+    "allow_auxiliary_override": false,
+    "share_reconciliation_relative_tolerance": 0.005,
+    "total_market_cap_coverage_min": 0.995,
+    "float_market_cap_coverage_min": 0.995
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

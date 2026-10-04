@@ -1,6 +1,8 @@
 """PIT masks and breadth denominator tests for SelectionPanelV2."""
 
 import unittest
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -46,6 +48,29 @@ def make_panel():
 
 
 class SelectionPanelV2Test(unittest.TestCase):
+
+    def test_exclusion_only_st_panel_aligns_and_blocks_st(self):
+        panel = make_panel()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "st.npz"
+            known = np.ones((2, 2), dtype=bool)
+            status = np.array([[False, True], [False, False]])
+            np.savez_compressed(
+                path, dates=np.array([panel.dates[10], panel.dates[11]]),
+                symbols=np.array(["sz000001", "sh600000"]),
+                known=known, is_st=status,
+                source_role=np.array(["st_exclusion_only"]))
+            aligned_status, aligned_known = \
+                SelectionPanelV2._load_st_exclusion_panel(
+                    path, panel.dates, panel.symbols)
+        self.assertTrue(aligned_known[10, 1])
+        self.assertTrue(aligned_status[10, 1])
+        self.assertFalse(aligned_known[9, 1])
+        panel.base.st_status = aligned_status
+        panel.st_status_known = aligned_known
+        self.assertFalse(panel.signal_eligible(min_history=1)[10, 1])
+        self.assertIn("KNOWN_ST", panel.eligibility_reasons(
+            10, 1, min_history=1))
 
     def test_universe_uses_listing_and_delisting_dates(self):
         panel = make_panel()

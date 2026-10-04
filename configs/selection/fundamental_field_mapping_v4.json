@@ -1,0 +1,66 @@
+{
+  "mapping_version": "fundamental_field_mapping_v4",
+  "allowed_unit_scales": [
+    1.0,
+    1000.0,
+    10000.0,
+    1000000.0
+  ],
+  "fields": {
+    "营业收入": {
+      "standard_field": "revenue",
+      "statement_types": ["income"],
+      "value_kind": "cumulative"
+    },
+    "营业总收入": {
+      "standard_field": "revenue",
+      "statement_types": ["income"],
+      "value_kind": "cumulative"
+    },
+    "营业成本": {
+      "standard_field": "operating_cost",
+      "statement_types": ["income"],
+      "value_kind": "cumulative"
+    },
+    "归属于母公司股东的净利润": {
+      "standard_field": "parent_net_profit",
+      "statement_types": ["income"],
+      "value_kind": "cumulative"
+    },
+    "经营活动产生的现金流量净额": {
+      "standard_field": "operating_cash_flow",
+      "statement_types": ["cashflow"],
+      "value_kind": "cumulative"
+    },
+    "购建固定资产、无形资产和其他长期资产支付的现金": {
+      "standard_field": "capital_expenditure_cash",
+      "statement_types": ["cashflow"],
+      "value_kind": "cumulative"
+    },
+    "资产总计": {
+      "standard_field": "total_assets",
+      "statement_types": ["balance"],
+      "value_kind": "instant"
+    },
+    "负债合计": {
+      "standard_field": "total_liabilities",
+      "statement_types": ["balance"],
+      "value_kind": "instant"
+    },
+    "归属于母公司股东权益合计": {
+      "standard_field": "parent_equity",
+      "statement_types": ["balance"],
+      "value_kind": "instant"
+    },
+    "实收资本（或股本）": {
+      "standard_field": "total_shares",
+      "statement_types": ["shares"],
+      "value_kind": "instant"
+    },
+    "流通股本": {
+      "standard_field": "float_shares",
+      "statement_types": ["shares"],
+      "value_kind": "instant"
+    }
+  }
+}

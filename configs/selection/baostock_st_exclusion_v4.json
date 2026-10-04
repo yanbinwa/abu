@@ -1,0 +1,30 @@
+{
+  "config_version": "baostock_st_exclusion_v4",
+  "source_version": "baostock_0.9.4_daily_st_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/baostock_st_raw",
+  "security_master": "/Users/wjy/abu/data/selection_research/security_master.csv",
+  "trading_sessions_source": "/Users/wjy/abu/data/csv/sh000300_20061002_20261002",
+  "history_start_date": "2019-01-01",
+  "history_end_date": "2026-09-30",
+  "symbol_start_overrides": {},
+  "fields": [
+    "date",
+    "code",
+    "tradestatus",
+    "isST"
+  ],
+  "source_role": "st_exclusion_only",
+  "derive_float_shares": false,
+  "success_status": "COLLECTED_ST_EXCLUSION_CHUNK",
+  "failure_status": "BLOCKED_ST_EXCLUSION_CHUNK",
+  "chunk_size": 200,
+  "max_concurrency": 1,
+  "strict_rules": {
+    "unknown_st_policy": "exclude",
+    "exclude_st_value": 1,
+    "security_day_coverage_min": 0.995,
+    "allow_as_alpha_or_ranking_feature": false,
+    "allow_share_capital_derivation": false
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

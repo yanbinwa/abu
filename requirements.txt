@@ -17,3 +17,4 @@ ipywidgets==7.8.5
 notebook==6.5.7
 ipykernel==6.29.5
 akshare==1.18.21
+baostock==0.9.4

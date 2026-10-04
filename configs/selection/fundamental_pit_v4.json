@@ -1,0 +1,107 @@
+{
+  "config_version": "fundamental_pit_v4",
+  "adapter_version": "fundamental_raw_adapters_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/fundamental_raw",
+  "audit_period": {
+    "start": "20200101",
+    "end": "20261003"
+  },
+  "sources": {
+    "cninfo": {
+      "role": "primary_announcement_document_candidate",
+      "operator": "CNINFO",
+      "announcement_timestamp": true,
+      "historical_documents": true,
+      "revision_documents": true,
+      "numeric_extraction_required": true,
+      "license_review_required": true
+    },
+    "sina": {
+      "role": "auxiliary_statement_cross_check",
+      "operator": "Sina Finance",
+      "announcement_timestamp": false,
+      "announcement_date": true,
+      "historical_documents": false,
+      "revision_documents": false,
+      "latest_restated_value_risk": true
+    },
+    "eastmoney": {
+      "role": "auxiliary_statement_cross_check",
+      "operator": "Eastmoney",
+      "announcement_date": true,
+      "delisted_endpoint": true,
+      "revision_documents": false,
+      "latest_restated_value_risk": true
+    }
+  },
+  "core_routing": {
+    "announcement_and_revision_provenance": "cninfo",
+    "numeric_facts": "cninfo_document_extraction_only",
+    "auxiliary_sources_may_override": false,
+    "unknown_announcement_date_policy": "exclude",
+    "unknown_revision_history_policy": "exclude"
+  },
+  "fixed_audit_sample": [
+    {
+      "symbol": "sz000001",
+      "board": "shenzhen_main",
+      "industry_type": "financial",
+      "history_flag": "listed"
+    },
+    {
+      "symbol": "sh600519",
+      "board": "shanghai_main",
+      "industry_type": "non_financial",
+      "history_flag": "listed"
+    },
+    {
+      "symbol": "sz300750",
+      "board": "chinext",
+      "industry_type": "non_financial",
+      "history_flag": "listed"
+    },
+    {
+      "symbol": "sh688981",
+      "board": "star",
+      "industry_type": "non_financial",
+      "history_flag": "listed"
+    },
+    {
+      "symbol": "sh600000",
+      "board": "shanghai_main",
+      "industry_type": "financial",
+      "history_flag": "listed"
+    },
+    {
+      "symbol": "sz000007",
+      "board": "shenzhen_main",
+      "industry_type": "non_financial",
+      "history_flag": "historical_st"
+    },
+    {
+      "symbol": "sz000013",
+      "board": "shenzhen_main",
+      "industry_type": "non_financial",
+      "history_flag": "delisted"
+    },
+    {
+      "symbol": "sh600145",
+      "board": "shanghai_main",
+      "industry_type": "non_financial",
+      "history_flag": "delisted_historical_st"
+    }
+  ],
+  "cninfo_categories": [
+    "category_ndbg_szsh",
+    "category_bndbg_szsh",
+    "category_yjdbg_szsh",
+    "category_sjdbg_szsh",
+    "category_bcgz_szsh"
+  ],
+  "statement_types": [
+    "fzb",
+    "lrb",
+    "llb"
+  ],
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

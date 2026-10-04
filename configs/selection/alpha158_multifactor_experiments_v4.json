@@ -1,0 +1,101 @@
+{
+  "catalog_version": "alpha158_multifactor_experiments_v4",
+  "status": "PRE_REGISTERED_RESEARCH_ONLY",
+  "registered_before_v4_returns": true,
+  "observed_history": {
+    "start": "2022-01-01",
+    "end": "2026-10-03",
+    "classification": "development_and_diagnostic_only"
+  },
+  "output_root": "/Users/wjy/abu/backtests/alpha158_multifactor_v4",
+  "required_order": [
+    "D0",
+    "D1",
+    "B2",
+    "B3",
+    "B4",
+    "S1",
+    "B5",
+    "F1"
+  ],
+  "experiments": [
+    {
+      "order": 0,
+      "experiment_id": "D0",
+      "hypothesis": "PIT基本面、股本、ST和生命周期数据能够在不使用未来修订的前提下满足冻结覆盖门槛。",
+      "single_change": "新增数据覆盖与PIT正确性审计，不产生策略收益。",
+      "continue_gate": "Spec 4.4全部数据门槛通过；否则停止D1及后续实验。",
+      "failure_status": "BLOCKED_DATA_GATE",
+      "output_template": "{output_root}/D0/{trial_id}"
+    },
+    {
+      "order": 1,
+      "experiment_id": "D1",
+      "hypothesis": "预登记经济主题在多个年度和预测期限上具有方向基本一致的横截面信息。",
+      "single_change": "仅增加单因子与主题诊断，不改变组合规则。",
+      "continue_gate": "覆盖合格且主题方向跨年度基本一致；通过FDR审计后才进入B2。",
+      "failure_status": "REJECTED_FACTOR_GATE",
+      "output_template": "{output_root}/D1/{trial_id}"
+    },
+    {
+      "order": 2,
+      "experiment_id": "B2",
+      "hypothesis": "经济主题等权信号在冻结v3组合路径下优于弱趋势基线和匹配随机组合中位数。",
+      "single_change": "用经济主题等权信号替换排序信号，继续使用冻结v3组合规则。",
+      "continue_gate": "成本后结果超过弱趋势基线和匹配随机组合中位数，且不存在单一年度或分组集中。",
+      "failure_status": "REJECTED_ECONOMIC_BASELINE",
+      "output_template": "{output_root}/B2/{trial_id}"
+    },
+    {
+      "order": 3,
+      "experiment_id": "B3",
+      "hypothesis": "经济主题与technical_v1组成的多周期Ridge相对经济等权基线提供稳定的成本后增量。",
+      "single_change": "把B2等权信号替换为预登记Ridge；股票池、执行与冻结v3组合不变。",
+      "continue_gate": "Ridge相对B2在多数年度和市场状态具有稳定成本后增量。",
+      "failure_status": "REJECTED_RIDGE_INCREMENT",
+      "output_template": "{output_root}/B3/{trial_id}"
+    },
+    {
+      "order": 4,
+      "experiment_id": "B4",
+      "hypothesis": "多周期OOS收益校准和净优势换仓能够保留预测价值并降低无效换手。",
+      "single_change": "在B3信号上加入冻结收益校准器和成本感知组合层。",
+      "continue_gate": "25bp主口径、40bp敏感性、平均R和三个跌停压力满足历史组合门禁。",
+      "failure_status": "REJECTED_COST_AWARE_PORTFOLIO",
+      "output_template": "{output_root}/B4/{trial_id}"
+    },
+    {
+      "order": 5,
+      "experiment_id": "S1",
+      "hypothesis": "B4结论不由单一市值股票池、行业或市场状态驱动。",
+      "single_change": "只切换预登记股票池和报告分组，不改变B4模型及组合参数。",
+      "continue_gate": "主结论在预登记敏感性股票池和多个市场状态中不发生实质反转。",
+      "failure_status": "REJECTED_ROBUSTNESS_GATE",
+      "output_template": "{output_root}/S1/{trial_id}"
+    },
+    {
+      "order": 6,
+      "experiment_id": "B5",
+      "hypothesis": "单一预登记GBDT在完全相同数据、校准、组合和执行路径上稳定优于Ridge。",
+      "single_change": "模型家族从Ridge变为唯一预登记GBDT，其余路径不变。",
+      "continue_gate": "仅在B4和S1通过后启动，且成本后组合效用稳定超过Ridge。",
+      "failure_status": "SKIPPED_OR_REJECTED_GBDT",
+      "output_template": "{output_root}/B5/{trial_id}"
+    },
+    {
+      "order": 7,
+      "experiment_id": "F1",
+      "hypothesis": "冻结后的数据、模型、校准和组合路径能够在新行情中持续产生可审计决策。",
+      "single_change": "从冻结日后追加真正前瞻数据，不允许反向修改历史参数。",
+      "continue_gate": "满足预登记最短期限、最少交易数和市场状态覆盖；仅决定是否继续观察。",
+      "failure_status": "PAUSED_FORWARD_GATE",
+      "output_template": "{output_root}/F1/{trial_id}"
+    }
+  ],
+  "prohibitions": [
+    "不得在D0通过前训练v4模型",
+    "不得根据2022至2026收益修改核心参数",
+    "不得跳过失败阶段继续增加模型复杂度",
+    "不得输出APPROVED_FOR_LIVE"
+  ]
+}

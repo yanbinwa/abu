@@ -1,0 +1,103 @@
+{
+  "baseline_id": "alpha158_multifactor_v4_m0_20261003",
+  "status": "FROZEN_RESEARCH_BASELINE",
+  "frozen_at": "2026-10-03T00:00:00+08:00",
+  "git": {
+    "commit": "a346527871a802c4f238c47ed7a49b7918864a5a",
+    "branch": "main",
+    "initial_worktree_state": "main matched origin/main; v4 spec and development plan were untracked"
+  },
+  "observed_history": {
+    "start": "2022-01-01",
+    "end": "2026-10-03",
+    "role": "development_and_diagnostic_only",
+    "independent_holdout": false
+  },
+  "experiment_catalog": {
+    "path": "configs/selection/alpha158_multifactor_experiments_v4.json",
+    "sha256": "29d00b80477ad1cbe05375571745e8978bd0a0bc96d06a8fa8ae368fadecad11"
+  },
+  "frozen_configs": [
+    {
+      "strategy_version": "alpha158_lite_v1",
+      "path": "configs/selection/alpha158_lite_v1.json",
+      "file_sha256": "7fa19b9f3849f90c9f8a47e6f03cd715bb06f1047de1c08582201e0b13aaa364",
+      "canonical_config_sha256": "a27b11fd3ceb051be2c44d449a8e917f8c585459c948e8a4347197b5ecdb18e8",
+      "classification": "observed_frozen_baseline"
+    },
+    {
+      "strategy_version": "alpha158_lite_turnover_v2",
+      "path": "configs/selection/alpha158_lite_turnover_v2.json",
+      "file_sha256": "362f6bae5ad2c4095c5a7f99578f7a83d758777a07ad093d97a5c208d8355bb7",
+      "canonical_config_sha256": "63dd842d1542f38b3eccdffab5cb0fe6b846877e0fc4ff01dc04418e65fa7317",
+      "classification": "observed_post_hoc_diagnostic"
+    },
+    {
+      "strategy_version": "alpha158_lite_low_turnover_v3",
+      "path": "configs/selection/alpha158_lite_low_turnover_v3.json",
+      "file_sha256": "782180c8bc045454635f0062769cc1c10b096b3c496e2f8923050d63fd9faf1c",
+      "canonical_config_sha256": "9249d43c940ec4c03f54eb7e85855476d046cd9ecfab5c3ad34af5662c786927",
+      "classification": "observed_post_hoc_diagnostic"
+    }
+  ],
+  "frozen_reviews": [
+    {
+      "path": "docs/reviews/alpha158_lite_v1_validation_20261003.md",
+      "sha256": "40545eedeae379ab462a73f2a18ba5a683f34841e1b980b8b227d7ec67485b58"
+    },
+    {
+      "path": "docs/reviews/alpha158_lite_turnover_v2_validation_20261003.md",
+      "sha256": "8b5f3dff0cfe25ef17da9276aae3ddb3f96b0805fbdde69c72d13cef107e6556"
+    },
+    {
+      "path": "docs/reviews/alpha158_lite_low_turnover_v3_validation_20261003.md",
+      "sha256": "7707b394e4c4561cb005a9f5fa683c2e003e64b9a2cf8f61c267685d58b8603c"
+    }
+  ],
+  "historical_artifacts": [
+    {
+      "strategy_version": "alpha158_lite_v1",
+      "root": "/Users/wjy/abu/backtests/alpha158_lite_v1_codex_20261003",
+      "classification": "observed_frozen_baseline",
+      "files": {
+        "research_report.json": "bc80f4efc3cd6d26e5ae1c1a3a203552cf760465c32ab0006c04eefdd1a30fe7",
+        "oos_predictions.csv.gz": "51ca98ae3f35ff78968f740bc063c90064b0c7122494678d6e4975bd8e09abde",
+        "portfolio/results.csv": "47de2e3f0194496c40c4f97b38b5d3b9ac0a868429bbeb6435cec9287ce67122",
+        "portfolio/alpha_score/daily_nav.csv": "32a0dcfe7fc6a70dd7b098096322218ce4f9c3dc684c16eafb2967cde28a4f2a",
+        "portfolio/alpha_score/fills.csv": "134cc89a231d329e85a6b8d88ba1f0382a8f4cae46f95d69b650012f14fa8c27",
+        "portfolio/alpha_score/orders.csv": "16b091da482447bb2c1bef17dc2e758670f1610607ca082e7f96735351dda8cf",
+        "trial_registry.jsonl": "36f9b3a3ccc1588467e7c6a86fe872a5f5dee37219adf6f159abff44977593b9"
+      }
+    },
+    {
+      "strategy_version": "alpha158_lite_turnover_v2",
+      "root": "/Users/wjy/abu/backtests/alpha158_lite_turnover_v2_codex_20261003",
+      "classification": "observed_post_hoc_diagnostic",
+      "files": {
+        "comparison.json": "bcd564cf723cc89460ad9405311a4bffa8e3eaeada56f7b816430e27b20f4e99",
+        "results.csv": "c6b5928fcaff82694a03d7a3d41d40d48560d7df17d22362d766cb8ddb72401f",
+        "alpha158_lite_turnover_v2/daily_nav.csv": "5378740297871dfe2c79cd527af2e4afd0d9e1b8878e7367b74d66ffe3d8f7df",
+        "alpha158_lite_turnover_v2/fills.csv": "575ef6ce18af22df18e5185070676ab540e68ec13c94acd00820e930f5bf8f87",
+        "alpha158_lite_turnover_v2/orders.csv": "bf4050a9ffe0998984359687e4e66205ac4e50d462c97d6d3608044a1f31c64d",
+        "alpha158_lite_turnover_v2/risk_decisions.jsonl": "5d9556bcf436e08fbb68c4dfdfcd99d5e90fc4150c2ea78bd7f2fbdb53ff10ba",
+        "trial_registry.jsonl": "6f019cc003a3d63d31be7eee3c4e189bd9122ee0da411f50327536e9ad064523"
+      }
+    },
+    {
+      "strategy_version": "alpha158_lite_low_turnover_v3",
+      "root": "/Users/wjy/abu/backtests/alpha158_lite_low_turnover_v3",
+      "classification": "observed_post_hoc_diagnostic",
+      "files": {
+        "report.json": "5feba154fb6e3d2b6350f514246277f571d593d9ee92de616038cd23f40f9380",
+        "results.csv": "7086206effcfb044159d170fa05fc3f064531cabfb7558aa77261d84445e113b",
+        "alpha158_lite_low_turnover_v3/daily_nav.csv": "f060c655b058a93fea307da1c2412297065f818419285bccc363dd891f71a248",
+        "alpha158_lite_low_turnover_v3/fills.csv": "d6241d8cde7c512c7c4791d684610669062c9690e3d7fff3c182fd5f65f73cb6",
+        "alpha158_lite_low_turnover_v3/orders.csv": "7f15acd71486058b4136afc4182116b4240f6522ce7b7b2f05d01d704806ab46",
+        "alpha158_lite_low_turnover_v3/risk_decisions.jsonl": "24475a3d9411940da3f51dd84cccd45d7c083bd5c9f952de3d85695bb88015e6",
+        "trial_registry.jsonl": "6ae62f9a5ba6a515847522fba71bd0fe028b7e03d9cfae94086f89e1c8bcf6df"
+      }
+    }
+  ],
+  "v4_output_root": "/Users/wjy/abu/backtests/alpha158_multifactor_v4",
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

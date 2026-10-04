@@ -1,0 +1,29 @@
+{
+  "config_version": "baostock_structured_pilot_v4",
+  "source_version": "baostock_0.9.4_historical_snapshot_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/baostock_structured_raw",
+  "history_start_date": "2019-01-01",
+  "history_end_date": "2026-09-30",
+  "symbol_start_overrides": {
+    "sz000013": "1999-01-01"
+  },
+  "fields": [
+    "date",
+    "code",
+    "close",
+    "volume",
+    "turn",
+    "tradestatus",
+    "isST"
+  ],
+  "source_role": "auxiliary_audit_only",
+  "historical_revision_complete": false,
+  "float_share_derivation": "volume_shares / (turn_percent / 100)",
+  "strict_rules": {
+    "allow_primary_override": false,
+    "share_relative_tolerance": 0.005,
+    "st_security_day_coverage_min": 0.995,
+    "derived_float_security_day_coverage_min": 0.995
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}
