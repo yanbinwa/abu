@@ -20,8 +20,9 @@ from abupy.AlphaBu.ABuPortfolioExecutor import ExecutionConfig
 from abupy.AlphaBu.ABuPortfolioRisk import load_risk_config
 from abupy.AlphaBu.ABuPositionAddAnalytics import build_trade_attribution
 from abupy.AlphaBu.ABuPositionAddPolicy import (
-    CompositePositionAddPolicy, NoAddPolicy, ProtectedWinnerPolicy,
-    RebreakoutPolicy, TurtleAtrPolicy, load_no_add_config,
+    CompositePositionAddPolicy, MarketTrendGatePolicy, NoAddPolicy,
+    ProtectedWinnerPolicy, RebreakoutPolicy, TurtleAtrPolicy,
+    load_market_trend_gate_config, load_no_add_config,
     load_protected_winner_config, load_rebreakout_config,
     load_turtle_atr_config,
 )
@@ -52,6 +53,10 @@ def _policy(name):
         ROOT/"configs/selection/turtle_atr_add_v1.json"))
     if name == "turtle_atr":
         return turtle
+    if name == "turtle_atr_market_gate":
+        return MarketTrendGatePolicy(
+            turtle, load_market_trend_gate_config(
+                ROOT/"configs/selection/market_trend_add_gate_v1.json"))
     return CompositePositionAddPolicy(
         (protected, rebreakout), mode="ALL_OF",
         policy_id="protected_winner_rebreakout_v1")
@@ -227,6 +232,7 @@ def main():
                         default="all")
     parser.add_argument("--policy", choices=(
         "no_add", "protected_winner", "rebreakout", "turtle_atr",
+        "turtle_atr_market_gate",
         "protected_rebreakout_all_of"),
                         default="protected_winner")
     parser.add_argument("--mode", choices=("shadow", "executable"),

@@ -1,0 +1,14 @@
+{
+  "policy_version": "shortline_forward_v1",
+  "nominal_start_date": 20261009,
+  "start_definition": "FIRST_SUCCESSFULLY_ARCHIVED_TRADING_SESSION_ON_OR_AFTER_DATE",
+  "feature_mode": "shadow_only",
+  "order_mutation_allowed": false,
+  "required_datasets": [
+    "stock_zt_pool_em",
+    "stock_zt_pool_dtgc_em",
+    "stock_zt_pool_zbgc_em",
+    "stock_zt_pool_previous_em",
+    "stock_zt_pool_strong_em"
+  ]
+}

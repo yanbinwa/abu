@@ -78,6 +78,54 @@ class PortfolioExecutorTest(unittest.TestCase):
         self.assertEqual(executor.reserved_cash, 0)
         self.assertEqual(len(executor.orders_frame()), 1)
         self.assertEqual(len(executor.reservations_frame()), 1)
+        self.assertEqual("D0", fills[0].execution_policy_id)
+
+    def test_intraday_seam_keeps_reservation_until_external_fill(self):
+        executor = make_executor()
+        order, _ = executor.approve_order(
+            intent(suffix="intraday"), 100, 20250103, 10.5, 2.0)
+        reserved = executor.reserved_cash
+        self.assertEqual([], executor.process_open_sells(1))
+        self.assertEqual([order], executor.pending_buy_orders(1))
+        self.assertEqual(reserved, executor.reserved_cash)
+
+        fill = executor.apply_buy_fill(
+            order, 1, reference_price=10.1, fill_price_raw=10.12525,
+            execution_policy_id="M1",
+            decision_at="2025-01-03T09:35:02+08:00",
+            trigger_bar_end="2025-01-03T09:35:00+08:00",
+            candidate_bar_start="2025-01-03T09:36:00+08:00",
+            data_source="fixture", data_revision=1,
+            available_at="2025-01-03T09:35:01+08:00")
+
+        self.assertEqual("filled", fill.status)
+        self.assertEqual("M1", fill.execution_policy_id)
+        self.assertEqual(0, executor.reserved_cash)
+        self.assertNotIn(order, executor.orders)
+        self.assertIn(order.symbol, executor.positions)
+
+    def test_session_start_is_idempotent(self):
+        executor = make_executor()
+        executor._cash_receivables[1] = [{
+            "symbol": "sz000001", "cash": 10.0, "reason": "fixture"}]
+        before = executor.cash
+        executor.start_session(1)
+        executor.start_session(1)
+        self.assertEqual(before + 10.0, executor.cash)
+        self.assertEqual(1, len(executor.position_events))
+
+    def test_d0_wrapper_and_split_d0_path_are_equal(self):
+        direct = make_executor()
+        split = make_executor()
+        direct.approve_order(intent(suffix="same"), 100, 20250103, 10.5, 2.0)
+        split.approve_order(intent(suffix="same"), 100, 20250103, 10.5, 2.0)
+        direct_fill = direct.process_open(1)[0]
+        split.process_open_sells(1)
+        split_fill = split.process_open_buys_d0(1)[0]
+        self.assertEqual(direct_fill, split_fill)
+        self.assertEqual(direct.cash, split.cash)
+        self.assertEqual(direct.reserved_cash, split.reserved_cash)
+        self.assertEqual(direct.positions, split.positions)
 
     def test_different_future_open_does_not_change_approved_quantity(self):
         first = make_executor()

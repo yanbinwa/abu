@@ -1,0 +1,9 @@
+{
+  "experiment_id": "alpha158_turtle_atr_isolated_sleeve_v1",
+  "total_initial_cash": 1000000.0,
+  "base_initial_cash_fraction": 0.9,
+  "sleeve_max_gross_exposure": 0.8,
+  "policy_config": "turtle_atr_add_v1.json",
+  "parameter_search": false,
+  "historical_result_is_diagnostic": true
+}

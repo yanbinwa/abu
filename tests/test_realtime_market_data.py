@@ -4,7 +4,8 @@ from unittest import mock
 import pandas as pd
 
 from abupy.MarketBu.ABuRealtimeMarket import (
-    AKShareRealtimeMarketData, RealtimeMarketDataError, normalize_cn_symbol,
+    AKShareRealtimeMarketData, MinuteBarEvent, RealtimeMarketDataError,
+    normalize_cn_symbol,
 )
 
 
@@ -95,8 +96,15 @@ class AKShareRealtimeMarketDataTest(unittest.TestCase):
 
         self.assertEqual(["sh600000", "sh600000"], result.symbol.tolist())
         self.assertEqual([10_000, 8_000], result.volume.tolist())
-        self.assertEqual([True, False], result.bar_complete.tolist())
+        self.assertEqual([True, True], result.bar_complete.tolist())
         self.assertEqual("Asia/Shanghai", str(result.timestamp.dt.tz))
+        self.assertEqual(
+            pd.Timestamp("2026-10-09 10:01:00", tz="Asia/Shanghai"),
+            result.iloc[1].bar_start)
+        self.assertEqual(result.iloc[1].received_at,
+                         result.iloc[1].available_at)
+        self.assertLessEqual(result.iloc[1].request_started_at,
+                             result.iloc[1].received_at)
         self.assertEqual(
             ["akshare_eastmoney_minute", "akshare_eastmoney_minute"],
             result.source.tolist())
@@ -130,6 +138,46 @@ class AKShareRealtimeMarketDataTest(unittest.TestCase):
         self.assertEqual("akshare_sina_minute", adapter.health().last_provider)
         fake.stock_zh_a_minute.assert_called_once_with(
             symbol="sh600000", period="5", adjust="")
+
+    def test_minute_bars_empty_after_range_filter_fails_closed(self):
+        fake = mock.Mock()
+        fake.stock_zh_a_hist_min_em.return_value = pd.DataFrame({
+            "时间": ["2026-10-09 09:31:00"],
+            "开盘": [10.0], "收盘": [10.0], "最高": [10.0],
+            "最低": [10.0], "成交量": [100], "成交额": [1000],
+        })
+        adapter = AKShareRealtimeMarketData(
+            ak_module=fake, retries=1, fallback=False, now=lambda: NOW)
+        with self.assertRaisesRegex(RealtimeMarketDataError, "no rows"):
+            adapter.minute_bars(
+                "600000", start="2026-10-09 10:00:00",
+                end="2026-10-09 10:01:00")
+        health = adapter.health()
+        self.assertFalse(health.data_present)
+        self.assertIn("NO_DATA", health.reason_codes)
+
+    def test_minute_event_rejects_invalid_ohlc_and_reversed_clock(self):
+        common = dict(
+            symbol="sh600000", interval_minutes=1,
+            source_timestamp="2026-10-09T09:35:00+08:00",
+            bar_start="2026-10-09T09:34:00+08:00",
+            bar_end="2026-10-09T09:35:00+08:00",
+            request_started_at="2026-10-09T09:35:01+08:00",
+            received_at="2026-10-09T09:35:02+08:00",
+            available_at="2026-10-09T09:35:02+08:00",
+            open_raw=10.0, high_raw=10.2, low_raw=9.9, close_raw=10.1,
+            volume_shares=1000, amount_raw=None,
+            source="fixture",
+        )
+        self.assertEqual(("AMOUNT_MISSING",), MinuteBarEvent(
+            **common, quality_codes=("AMOUNT_MISSING",)).quality_codes)
+        with self.assertRaisesRegex(ValueError, "OHLC"):
+            MinuteBarEvent(**{**common, "high_raw": 10.0})
+        with self.assertRaisesRegex(ValueError, "reversed"):
+            MinuteBarEvent(**{
+                **common,
+                "received_at": "2026-10-09T09:35:00+08:00",
+            })
 
     def test_poll_snapshots_is_bounded_for_jobs_and_tests(self):
         fake = mock.Mock()

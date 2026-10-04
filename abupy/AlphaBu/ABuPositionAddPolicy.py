@@ -489,6 +489,86 @@ class TurtleAtrPolicy(PositionAddPolicy):
             "ATR_ADVANCE_NOT_MET")
 
 
+@dataclass(frozen=True)
+class MarketTrendGateConfig:
+    policy_id: str = "market_trend_gate"
+    policy_version: str = "market_trend_gate_v1"
+    require_benchmark_above_ma200: bool = True
+
+    @property
+    def sha256(self):
+        return _config_sha256(asdict(self))
+
+
+class MarketTrendGatePolicy(PositionAddPolicy):
+    """Fail-closed PIT market-trend gate around an ADD signal policy."""
+
+    def __init__(self, underlying, config=None):
+        self.underlying = underlying
+        self.config = config or MarketTrendGateConfig()
+        self.policy_id = self.config.policy_id
+        self.policy_version = self.config.policy_version
+
+    @property
+    def config_sha256(self):
+        return _config_sha256({
+            "gate": asdict(self.config),
+            "underlying_policy_id": self.underlying.policy_id,
+            "underlying_policy_version": self.underlying.policy_version,
+            "underlying_config_sha256": self.underlying.config_sha256,
+        })
+
+    def evaluate(self, context):
+        underlying = self.underlying.evaluate(context)
+        identity = evaluation_id(
+            context.trade_snapshot.trade_id, context.signal_asof,
+            self.policy_id, self.policy_version)
+        benchmark = context.portfolio_risk_snapshot.get("benchmark_close")
+        ma200 = context.portfolio_risk_snapshot.get("benchmark_ma200")
+        missing = tuple(sorted(
+            name for name, value in (("benchmark_close", benchmark),
+                                     ("benchmark_ma200", ma200))
+            if value is None or not np.isfinite(value)))
+        inputs = {
+            "underlying_evaluation_id": underlying.evaluation_id,
+            "underlying_policy_id": underlying.policy_id,
+            "benchmark_close": benchmark,
+            "benchmark_ma200": ma200,
+            "require_benchmark_above_ma200":
+                self.config.require_benchmark_above_ma200,
+        }
+        reasons = []
+        if not underlying.triggered or underlying.proposal is None:
+            reasons.extend("UNDERLYING:"+code
+                           for code in underlying.reason_codes)
+        if missing:
+            reasons.append("MISSING_MARKET_TREND_FIELD")
+        elif (self.config.require_benchmark_above_ma200 and
+              not float(benchmark) > float(ma200)):
+            reasons.append("BENCHMARK_NOT_ABOVE_MA200")
+        if reasons:
+            return PolicyEvaluation(
+                identity, self.policy_id, self.policy_version,
+                context.trade_snapshot.trade_id, context.signal_asof, False,
+                inputs, tuple(reasons), missing, self.config_sha256,
+                context.data_version)
+        sequence = context.trade_snapshot.add_count+1
+        source = underlying.proposal
+        proposal = replace(
+            source,
+            proposal_id=proposal_id(identity, sequence),
+            evaluation_id=identity,
+            trigger_code="{}_MARKET_UP".format(source.trigger_code),
+            reason_codes=tuple(source.reason_codes)+("BENCHMARK_ABOVE_MA200",),
+            logical_order_id=logical_add_order_id(
+                source.trade_id, context.signal_asof, sequence))
+        return PolicyEvaluation(
+            identity, self.policy_id, self.policy_version,
+            context.trade_snapshot.trade_id, context.signal_asof, True,
+            inputs, ("BENCHMARK_ABOVE_MA200",), (), self.config_sha256,
+            context.data_version, proposal)
+
+
 class CompositePositionAddPolicy(PositionAddPolicy):
     """Deterministic ALL_OF/ANY_OF/PRIORITY proposal arbiter."""
 
@@ -579,3 +659,11 @@ def load_turtle_atr_config(path):
     if set(payload) != set(TurtleAtrConfig.__dataclass_fields__):
         raise ValueError("TurtleATR config fields mismatch")
     return TurtleAtrConfig(**payload)
+
+
+def load_market_trend_gate_config(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    expected = set(MarketTrendGateConfig.__dataclass_fields__)
+    if set(payload) != expected:
+        raise ValueError("MarketTrendGate config fields mismatch")
+    return MarketTrendGateConfig(**payload)

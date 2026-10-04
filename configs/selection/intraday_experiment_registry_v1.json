@@ -1,0 +1,20 @@
+{
+  "experiments": [
+    {
+      "execution_policy": "D0",
+      "experiment_id": "intraday_pair_d0_v1",
+      "role": "frozen_legacy_baseline"
+    },
+    {
+      "execution_policy": "M1",
+      "experiment_id": "intraday_pair_m1_v1",
+      "role": "single_trigger_bar"
+    },
+    {
+      "execution_policy": "M2",
+      "experiment_id": "intraday_pair_m2_v1",
+      "role": "first_tradable_with_capacity"
+    }
+  ],
+  "schema_version": "intraday_experiment_registry_v1"
+}

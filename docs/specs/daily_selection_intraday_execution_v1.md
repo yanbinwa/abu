@@ -388,6 +388,17 @@ max_volume_participation = 0.05
 `completed_reference_bar` 必须在评估时刻之前已完成，不得使用候选成交Bar的
 最终成交量。
 
+v1 将 `completed_reference_bar` 冻结为 `decision_ready_at` 之前最近一根已完成的
+1分钟Bar，并强制：
+
+```text
+capacity_reference_bar.bar_end <= decision_ready_at
+candidate_bar.bar_start >= execution_eligible_at
+capacity_reference_bar_id != candidate_bar_id
+```
+
+修改候选成交Bar的最终成交量不得改变此前已经产生的成交决定。
+
 - `capacity_shares >= order.quantity`：允许整单成交；
 - `capacity_shares < order.quantity`：写入 `WAITING_CAPACITY`，在下一完整Bar后重新评估；
 - 到达截止时间仍不满足：整单取消，不部分成交。
@@ -690,13 +701,19 @@ RESERVATION_MISSING
 
 ### 18.6 实时影子盘准入
 
-至少连续20个交易日满足：
+先使用至少10个有效交易日校准并冻结有效日定义、窗口覆盖率、新鲜完整Bar
+可用率、p95/p99延迟、陈旧率、切源率、重复事件率和恢复成功率阈值。阈值
+冻结后，重新开始连续至少20个有效交易日的准入观察，并满足：
 
 - 无未来Bar、重复Fill、超出有效窗口的Fill或预留负数；
 - 所有待执行证券均有独立数据健康记录；
 - 可重启恢复，重放后不产生额外订单或Fill；
 - 已归档延迟分布，可生成 `empirical_p50` 和 `empirical_p95` 模型；
 - 数据缺失和降级率已报告，且所有异常均失败关闭。
+
+有效交易日至少需要覆盖完整执行窗口、为全部待执行证券生成独立健康记录、
+完成原始与标准事件归档及日终审计。策略规则、数据契约或准入阈值改变后，
+20日观察窗口重新连续计时。
 
 ## 19 待冻结配置
 

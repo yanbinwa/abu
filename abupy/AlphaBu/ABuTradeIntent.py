@@ -8,6 +8,9 @@ from typing import Any, Mapping
 
 
 VALID_POSITION_EFFECTS = ("OPEN", "INCREASE", "REDUCE", "CLOSE")
+VALID_INTRADAY_STATES = (
+    "CREATED", "ACTIVE", "CANDIDATE", "FILLED", "CANCELLED", "EXPIRED",
+)
 
 
 def validate_side_effect(side: str, position_effect: str) -> None:
@@ -129,6 +132,57 @@ class ApprovedOrder:
 
 
 @dataclass(frozen=True)
+class IntradayExecutionInstruction:
+    instruction_id: str
+    order_id: str
+    symbol: str
+    quantity: int
+    trading_date: int
+    policy_id: str
+    max_buy_price_raw: float
+    trigger_bar_end: str = "09:35:00"
+    last_decision_at: str = "10:29:00"
+    last_candidate_start: str = "10:30:00"
+    created_at: str = ""
+    reservation_id: str = ""
+    schema_version: str = "intraday_instruction_v1"
+
+    def __post_init__(self):
+        if self.quantity <= 0 or self.quantity % 100:
+            raise ValueError("intraday quantity must be a positive board lot")
+        if self.policy_id not in ("M1", "M2"):
+            raise ValueError("policy_id must be M1 or M2")
+        if self.max_buy_price_raw <= 0:
+            raise ValueError("max_buy_price_raw must be positive")
+
+
+@dataclass(frozen=True)
+class OrderEvent:
+    event_id: str
+    instruction_id: str
+    order_id: str
+    sequence: int
+    event_type: str
+    state: str
+    event_at: str
+    reason_code: str = ""
+    reference_bar_end: str = ""
+    candidate_bar_start: str = ""
+    input_source: str = ""
+    input_revision: int = 0
+    details: Mapping[str, Any] = field(default_factory=dict)
+    schema_version: str = "intraday_order_event_v1"
+
+    def __post_init__(self):
+        if self.sequence <= 0:
+            raise ValueError("sequence must be positive")
+        if self.state not in VALID_INTRADAY_STATES:
+            raise ValueError("invalid intraday state")
+        if self.input_revision < 0:
+            raise ValueError("input_revision must be non-negative")
+
+
+@dataclass(frozen=True)
 class Fill:
     order_id: str
     intent_id: str
@@ -161,10 +215,21 @@ class Fill:
     logical_order_id: str = ""
     physical_order_id: str = ""
     schema_version: str = "position_lineage_v1"
+    execution_policy_id: str = "D0"
+    decision_at: str = ""
+    trigger_bar_end: str = ""
+    candidate_bar_start: str = ""
+    capacity_reference_bar_end: str = ""
+    data_source: str = ""
+    data_revision: int = 0
+    latency_model: str = ""
+    available_at: str = ""
 
     def __post_init__(self):
         if self.side not in ("buy", "sell"):
             raise ValueError("side must be buy or sell")
+        if self.data_revision < 0:
+            raise ValueError("data_revision must be non-negative")
         validate_side_effect(self.side, self.position_effect)
 
 

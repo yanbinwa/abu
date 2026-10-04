@@ -1,0 +1,17 @@
+{
+  "capacity_reference_interval_minutes": 1,
+  "fill_mode": "all_or_none",
+  "last_candidate_start": "10:30:00",
+  "last_decision_at": "10:29:00",
+  "limit_up_mode": "base",
+  "max_bar_participation": 0.05,
+  "policy_id": "hybrid_intraday_entry_v1",
+  "sensitivity_participation": [
+    0.01,
+    0.02,
+    0.05,
+    0.1
+  ],
+  "slippage_bps": 25.0,
+  "trigger_bar_end": "09:35:00"
+}

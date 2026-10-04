@@ -13,6 +13,144 @@ from pathlib import Path
 import pandas as pd
 
 
+SHORTLINE_FORWARD_POLICY_KEYS = frozenset({
+    "policy_version", "nominal_start_date", "start_definition",
+    "feature_mode", "order_mutation_allowed", "required_datasets",
+})
+
+
+@dataclass(frozen=True)
+class ShortLineForwardPolicy:
+    """Frozen admission contract for prospective short-line observations."""
+
+    policy_version: str
+    nominal_start_date: int
+    start_definition: str
+    feature_mode: str
+    order_mutation_allowed: bool
+    required_datasets: tuple
+
+    def __post_init__(self):
+        if self.feature_mode != "shadow_only":
+            raise ValueError("short-line forward policy must remain shadow_only")
+        if self.order_mutation_allowed:
+            raise ValueError("short-line forward policy cannot mutate orders")
+        if self.start_definition != (
+                "FIRST_SUCCESSFULLY_ARCHIVED_TRADING_SESSION_ON_OR_AFTER_DATE"):
+            raise ValueError("unsupported short-line forward start definition")
+        if not self.required_datasets:
+            raise ValueError("required_datasets cannot be empty")
+        if len(set(self.required_datasets)) != len(self.required_datasets):
+            raise ValueError("required_datasets must be unique")
+
+    def to_dict(self):
+        payload = asdict(self)
+        payload["required_datasets"] = list(self.required_datasets)
+        return payload
+
+    @property
+    def sha256(self):
+        return hashlib.sha256(json.dumps(
+            self.to_dict(), ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"),
+        ).encode()).hexdigest()
+
+    def archive_complete(self, captures):
+        """Require one successful same-day normalized capture per dataset."""
+        by_dataset = {}
+        for item in captures:
+            dataset = str(item.get("dataset", ""))
+            if dataset in self.required_datasets:
+                by_dataset.setdefault(dataset, []).append(item)
+        for dataset in self.required_datasets:
+            rows = by_dataset.get(dataset, ())
+            if not any(
+                    row.get("status") == "success" and
+                    row.get("availability_evidence") == "FORWARD_CAPTURE" and
+                    bool(row.get("asof_feature_allowed")) and
+                    bool(row.get("normalized_path"))
+                    for row in rows):
+                return False
+        return True
+
+
+def load_shortline_forward_policy(path):
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    unknown = set(payload) - SHORTLINE_FORWARD_POLICY_KEYS
+    missing = SHORTLINE_FORWARD_POLICY_KEYS - set(payload)
+    if unknown or missing:
+        raise ValueError("short-line forward policy keys mismatch: missing={} "
+                         "unknown={}".format(sorted(missing), sorted(unknown)))
+    if not isinstance(payload["nominal_start_date"], int):
+        raise ValueError("nominal_start_date must be an integer")
+    if not isinstance(payload["order_mutation_allowed"], bool):
+        raise ValueError("order_mutation_allowed must be a boolean")
+    if not isinstance(payload["required_datasets"], list):
+        raise ValueError("required_datasets must be a list")
+    return ShortLineForwardPolicy(
+        policy_version=str(payload["policy_version"]),
+        nominal_start_date=int(payload["nominal_start_date"]),
+        start_definition=str(payload["start_definition"]),
+        feature_mode=str(payload["feature_mode"]),
+        order_mutation_allowed=bool(payload["order_mutation_allowed"]),
+        required_datasets=tuple(str(item) for item in payload["required_datasets"]),
+    )
+
+
+def read_forward_anchor(root, policy):
+    """Read and validate the immutable first successful session anchor."""
+    path = Path(root) / "_forward" / "anchor.json"
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("policy_sha256") != policy.sha256:
+        raise ValueError("short-line forward anchor policy hash mismatch")
+    anchor = int(payload["anchor_trade_date"])
+    if anchor < policy.nominal_start_date:
+        raise ValueError("short-line forward anchor predates nominal start")
+    if payload.get("feature_mode") != "shadow_only":
+        raise ValueError("short-line forward anchor is not shadow-only")
+    if payload.get("order_mutation_allowed") is not False:
+        raise ValueError("short-line forward anchor permits order mutation")
+    if payload.get("required_datasets") != list(policy.required_datasets):
+        raise ValueError("short-line forward anchor dataset contract mismatch")
+    return payload
+
+
+def establish_forward_anchor(root, policy, *, trade_date, run_id, created_at,
+                             captures):
+    """Create the start anchor exactly once after a complete eligible archive."""
+    existing = read_forward_anchor(root, policy)
+    if existing is not None:
+        return existing
+    trade_date = int(trade_date)
+    if trade_date < policy.nominal_start_date:
+        return None
+    if not policy.archive_complete(captures):
+        return None
+    payload = {
+        "anchor_version": "shortline_forward_anchor_v1",
+        "anchor_trade_date": trade_date,
+        "nominal_start_date": policy.nominal_start_date,
+        "start_definition": policy.start_definition,
+        "source_run_id": str(run_id),
+        "created_at": str(created_at),
+        "policy_version": policy.policy_version,
+        "policy_sha256": policy.sha256,
+        "required_datasets": list(policy.required_datasets),
+        "feature_mode": policy.feature_mode,
+        "order_mutation_allowed": policy.order_mutation_allowed,
+    }
+    path = Path(root) / "_forward" / "anchor.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _write_new(path, json.dumps(
+            payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    except FileExistsError:
+        return read_forward_anchor(root, policy)
+    return payload
+
+
 @dataclass(frozen=True)
 class ShortLineSnapshotMeta:
     source: str

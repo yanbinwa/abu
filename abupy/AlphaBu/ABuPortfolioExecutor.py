@@ -80,6 +80,7 @@ class PortfolioExecutor(object):
         self.limit_references = limit_references or LimitReferenceStore()
         self.limit_audit = []
         self.position_ledger = PositionLedger()
+        self._started_sessions = set()
 
     def _fees(self, quantity, price, side):
         gross = quantity * price
@@ -338,7 +339,10 @@ class PortfolioExecutor(object):
 
     def _record_unfilled(self, order, day, status, reason, rule_id="",
                          limit_model="legacy_v1", reference_quality="",
-                         limit_reasons=()):
+                         limit_reasons=(), execution_policy_id="D0",
+                         decision_at="", trigger_bar_end="",
+                         candidate_bar_start="", data_source="",
+                         data_revision=0, available_at=""):
         fill = Fill(
             order_id=order.order_id, intent_id=order.intent_id,
             date=int(self.panel.dates[day]), symbol=order.symbol,
@@ -358,6 +362,11 @@ class PortfolioExecutor(object):
             proposal_id=order.proposal_id,
             logical_order_id=order.logical_order_id,
             physical_order_id=order.physical_order_id or order.order_id,
+            execution_policy_id=execution_policy_id,
+            decision_at=decision_at, trigger_bar_end=trigger_bar_end,
+            candidate_bar_start=candidate_bar_start,
+            data_source=data_source, data_revision=int(data_revision),
+            available_at=available_at,
         )
         self.fills.append(fill)
         if status in ("rejected", "expired", "cancelled"):
@@ -397,24 +406,59 @@ class PortfolioExecutor(object):
                 order, day, "rejected", "SLIPPAGE_EXCEEDS_LIMIT", rule_id,
                 limit_model, reference_quality, limit_reasons
             )
+        return self.apply_buy_fill(
+            order, day, reference_price=opening, fill_price_raw=price,
+            rule_id=rule_id, limit_model=limit_model,
+            reference_quality=reference_quality,
+            limit_reasons=limit_reasons, execution_policy_id="D0",
+            consume_order=False,
+        )
+
+    def apply_buy_fill(self, order, day, reference_price, fill_price_raw,
+                       rule_id="", limit_model="legacy_v1",
+                       reference_quality="", limit_reasons=(),
+                       execution_policy_id="D0", decision_at="",
+                       trigger_bar_end="", candidate_bar_start="",
+                       capacity_reference_bar_end="", data_source="",
+                       data_revision=0, latency_model="", available_at="",
+                       consume_order=True):
+        """Apply an externally priced buy through the shared account ledger."""
+        if order.side != "buy":
+            raise ValueError("apply_buy_fill only accepts buy orders")
+        reference_price = float(reference_price)
+        price = float(fill_price_raw)
+        if not np.isfinite(reference_price) or reference_price <= 0 or \
+                not np.isfinite(price) or price <= 0:
+            raise ValueError("buy fill prices must be finite and positive")
+        if price > order.max_buy_price_raw + 1e-12:
+            raise ValueError("buy fill exceeds frozen maximum price")
+        def consume_pending():
+            if consume_order:
+                self.orders = [item for item in self.orders
+                               if item.order_id != order.order_id]
+
         effect = order.position_effect or "OPEN"
         if effect == "INCREASE":
             trade = self.position_ledger.logical_trades.get(order.target_trade_id)
             if trade is None or trade.status != "ACTIVE":
                 self._release(order)
+                consume_pending()
                 return self._record_unfilled(
                     order, day, "rejected", "TARGET_TRADE_NOT_ACTIVE")
         elif order.symbol in self.positions and not order.target_trade_id:
             self._release(order)
+            consume_pending()
             return self._record_unfilled(order, day, "rejected", "DUPLICATE_POSITION")
         if (effect != "INCREASE" and self.config.max_positions is not None and
                 len(self.positions) >= self.config.max_positions):
             self._release(order)
+            consume_pending()
             return self._record_unfilled(order, day, "rejected", "MAX_POSITIONS")
         commission, transfer, stamp = self._fees(order.quantity, price, "buy")
         cost = order.quantity * price + commission + transfer + stamp
         self._release(order)
         if cost > self.available_cash + 1e-9:
+            consume_pending()
             return self._record_unfilled(order, day, "rejected", "INSUFFICIENT_CASH")
         self.cash -= cost
         initial_r = max(0.0, price - float(order.initial_stop_raw or price))
@@ -424,10 +468,10 @@ class PortfolioExecutor(object):
             order_id=order.order_id, intent_id=order.intent_id,
             date=int(self.panel.dates[day]), symbol=order.symbol, side="buy",
             status="filled", quantity=order.quantity,
-            reference_price=opening, fill_price_raw=price,
+            reference_price=reference_price, fill_price_raw=price,
             commission=commission, transfer_fee=transfer,
             stamp_tax=stamp,
-            slippage_cost=order.quantity * (price - opening),
+            slippage_cost=order.quantity * (price - reference_price),
             actual_initial_r_per_share_raw=initial_r,
             actual_initial_r_cash=initial_r * order.quantity,
             limit_rule_id=rule_id,
@@ -442,6 +486,12 @@ class PortfolioExecutor(object):
             proposal_id=order.proposal_id,
             logical_order_id=order.logical_order_id,
             physical_order_id=order.physical_order_id or order.order_id,
+            execution_policy_id=execution_policy_id,
+            decision_at=decision_at, trigger_bar_end=trigger_bar_end,
+            candidate_bar_start=candidate_bar_start,
+            capacity_reference_bar_end=capacity_reference_bar_end,
+            data_source=data_source, data_revision=int(data_revision),
+            latency_model=latency_model, available_at=available_at,
         )
         sellable_date = int(self.panel.dates[min(day + 1, len(self.panel.dates)-1)])
         self.position_ledger.record_buy(
@@ -449,6 +499,7 @@ class PortfolioExecutor(object):
         self.positions[order.symbol] = self.position_ledger.compatibility_position(
             order.symbol)
         self.fills.append(fill)
+        consume_pending()
         return fill
 
     def _fill_sell(self, order, day):
@@ -572,8 +623,14 @@ class PortfolioExecutor(object):
                 quantity_delta=item["quantity"], reason=item.get("reason", ""),
             ))
 
-    def process_open(self, day):
-        self._credit_receivables(day)
+    def start_session(self, day):
+        """Credit receivables exactly once before any open/intraday action."""
+        if day not in self._started_sessions:
+            self._credit_receivables(day)
+            self._started_sessions.add(day)
+        return int(self.panel.dates[day])
+
+    def _process_open_orders(self, day, sides):
         date = int(self.panel.dates[day])
         fills = []
         pending = []
@@ -584,6 +641,9 @@ class PortfolioExecutor(object):
         )
         self.orders = []
         for order in active:
+            if order.side not in sides:
+                pending.append(order)
+                continue
             if order.side == "buy" and date != order.valid_session:
                 self._release(order)
                 fills.append(self._record_unfilled(
@@ -600,6 +660,54 @@ class PortfolioExecutor(object):
                 pending.append(order)
         self.orders.extend(pending)
         return fills
+
+    def process_open_sells(self, day):
+        """Process receivables and sells, leaving every buy reservation intact."""
+        self.start_session(day)
+        return self._process_open_orders(day, sides=("sell",))
+
+    def pending_buy_orders(self, day):
+        """Return valid buys and expire stale buys without executing them."""
+        self.start_session(day)
+        date = int(self.panel.dates[day])
+        valid = []
+        remaining = []
+        for order in self.orders:
+            if order.side != "buy":
+                remaining.append(order)
+            elif date == order.valid_session:
+                valid.append(order)
+                remaining.append(order)
+            else:
+                self._release(order)
+                self._record_unfilled(
+                    order, day, "expired", "BUY_ORDER_EXPIRED")
+        self.orders = remaining
+        return sorted(valid, key=lambda item: (
+            item.strategy_id, item.symbol, item.order_id))
+
+    def cancel_buy_order(self, order, day, reason_code, status="cancelled",
+                         execution_policy_id="D0", **metadata):
+        if order.side != "buy":
+            raise ValueError("cancel_buy_order only accepts buy orders")
+        if status not in ("cancelled", "expired", "rejected"):
+            raise ValueError("invalid terminal buy status")
+        self.orders = [item for item in self.orders
+                       if item.order_id != order.order_id]
+        self._release(order)
+        return self._record_unfilled(
+            order, day, status, reason_code,
+            execution_policy_id=execution_policy_id, **metadata)
+
+    def process_open_buys_d0(self, day):
+        """Execute remaining buys with the frozen legacy D0 model."""
+        self.start_session(day)
+        return self._process_open_orders(day, sides=("buy",))
+
+    def process_open(self, day):
+        """Frozen D0 wrapper retained for historical and paper compatibility."""
+        self.start_session(day)
+        return self._process_open_orders(day, sides=("sell", "buy"))
 
     def process_close(self, day):
         date = int(self.panel.dates[day])
@@ -659,6 +767,7 @@ class PortfolioExecutor(object):
             "liquidation_nav_zero_stale": self.cash + holdings - stale_value,
         }
         self.curve.append(row)
+        self._started_sessions.discard(day)
         return row
 
     def curve_frame(self):

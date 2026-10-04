@@ -39,6 +39,25 @@ def run_shadow(command):
         return {"status": "shadow_output_invalid", "stdout": completed.stdout[-2000:]}
 
 
+def enforce_shortline_shadow_contract(result):
+    """Reject any collector result that claims permission to affect orders."""
+    result = dict(result or {})
+    status = str(result.get("status", ""))
+    if status.startswith("skipped_") or status.startswith("shadow_"):
+        result["shadow_contract_status"] = "not_applicable"
+        return result
+    if (result.get("feature_mode") != "shadow_only" or
+            result.get("order_mutation_allowed") is not False or
+            result.get("paper_order_effect") != "none"):
+        return {
+            "status": "shadow_contract_rejected",
+            "reason": "short-line capture is not provably isolated from paper orders",
+            "collector_status": status,
+        }
+    result["shadow_contract_status"] = "passed"
+    return result
+
+
 def shortline_trade_date(market_update, now=None):
     """Return today's completed session, including an idempotent late rerun."""
     if not market_update:
@@ -76,12 +95,12 @@ def main():
     if args.skip_shortline:
         shortline = {"status": "skipped_by_cli"}
     elif event_trade_date is not None:
-        shortline = run_shadow([
+        shortline = enforce_shortline_shadow_contract(run_shadow([
             python, "scripts/collect_shortline_events.py",
             "--trade-date", str(event_trade_date),
             "--phase", "close", "--output-dir", str(args.shortline_dir),
             "--paper-dir", str(args.paper_dir),
-        ])
+        ]))
     else:
         shortline = {
             "status": "skipped_without_new_market_session",
@@ -100,6 +119,7 @@ def main():
     result = {
         "status": "ok", "paper_dir": str(args.paper_dir),
         "event": last_run, "shortline_shadow": shortline, "wecom": wecom,
+        "shortline_order_integration": "disabled",
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

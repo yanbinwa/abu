@@ -1,0 +1,5 @@
+{
+  "policy_id": "turtle_atr_market_trend_gate",
+  "policy_version": "turtle_atr_market_trend_gate_v1",
+  "require_benchmark_above_ma200": true
+}

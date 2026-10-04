@@ -4,6 +4,17 @@
 
 本流程只为前瞻研究保存当时可见的原始快照。数据先进入 `shadow_only`，不会改变 `vcp_residual_v2` 的选股、风控、成交或企业微信通知。
 
+前瞻样本的名义起始日冻结为 `2026-10-09`。实际起算锚点是该日或之后
+第一个同时成功归档全部必需收盘事件集的交易日。配置位于
+`configs/selection/shortline_forward_v1.json`，首次合格后会创建不可变的
+`_forward/anchor.json`。起算日前、归档不完整日以及后续失败日都只保留
+诊断记录，不计入合格前瞻样本。
+
+`feature_mode=shadow_only`、`order_mutation_allowed=false` 和
+`paper_order_effect=none` 是流水线硬约束，不是运行参数。流水线发现采集器
+返回其他模式时会标记 `shadow_contract_rejected`，同时仍按冻结版本独立运行
+模拟盘，不会把短线事件传入订单生成、排序或风险审批。
+
 当前 AKShare/东方财富接口可提供涨停、跌停、炸板、昨日涨停和强势股池。现有接口没有经过验证的全市场竞价明细和题材原因历史流，因此：
 
 - 09:26 只保存全市场报价代理，并标记 `PROXY_NOT_EXACT_AUCTION_FEED`；
@@ -66,6 +77,11 @@
 - 空响应、schema 漂移和请求失败没有被记成零事件。
 
 连续采集验收以 `eligible_session_count` 为准。非交易日产生的 `_runs` 记录不计为有效会话。
+
+正式前瞻样本数量以 `forward_eligible_session_count` 为准；
+`eligible_session_count` 只表示单个底层批次满足 as-of 条件，不等于已经越过
+前瞻起算闸门。审计报告中的 `forward_anchor_trade_date` 必须与
+`_forward/anchor.json` 一致。
 
 ## 5. 失败和补抓
 

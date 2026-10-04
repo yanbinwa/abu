@@ -26,13 +26,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from abupy.AlphaBu.ABuShortLineEvents import (  # noqa: E402
-    ImmutableShortLineSnapshotStore,
+    ImmutableShortLineSnapshotStore, establish_forward_anchor,
+    load_shortline_forward_policy, read_forward_anchor,
 )
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 SOURCE = "akshare_eastmoney"
 ADAPTER_VERSION = "akshare_shortline_forward_v1"
+DEFAULT_FORWARD_CONFIG = (
+    ROOT / "configs/selection/shortline_forward_v1.json")
 
 
 DATASETS = {
@@ -200,12 +203,14 @@ def _market_snapshot_evidence(paper_dir, trade_date):
 
 
 def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
-            ak_module=None, calendar_dates=None):
+            ak_module=None, calendar_dates=None, forward_config=None):
     now = now or datetime.now(SHANGHAI)
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must include a timezone")
     now = now.astimezone(SHANGHAI)
     trade_date = int(trade_date)
+    policy = load_shortline_forward_policy(
+        forward_config or DEFAULT_FORWARD_CONFIG)
     import akshare as ak
     ak = ak_module or ak
     if calendar_dates is None:
@@ -222,7 +227,13 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
         "market_snapshot_evidence": _market_snapshot_evidence(
             paper_dir, trade_date),
         "captures": [],
-        "feature_mode": "shadow_only",
+        "forward_policy_version": policy.policy_version,
+        "forward_policy_sha256": policy.sha256,
+        "forward_nominal_start_date": policy.nominal_start_date,
+        "forward_start_definition": policy.start_definition,
+        "feature_mode": policy.feature_mode,
+        "order_mutation_allowed": policy.order_mutation_allowed,
+        "paper_order_effect": "none",
         "theme_reason_status": "UNAVAILABLE_FROM_CURRENT_AKSHARE_ENDPOINTS",
     }
     run_dir = Path(output_dir) / "_runs" / str(trade_date)
@@ -289,14 +300,18 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
                     nonce="{}_{}".format(run_id, index),
                     required_columns=spec["required"], normalized=normalized,
                     phase=spec["phase"],
-                    source_semantics="provider_event_pool")
+                    source_semantics="provider_event_pool",
+                    quality_codes=("SHADOW_ONLY_FORWARD_SAMPLE",),
+                    strategy_feature_allowed=False)
             except Exception as error:
                 meta = store.write(
                     pd.DataFrame(), source=SOURCE, dataset=dataset,
                     trade_date=trade_date, ingested_at=ingested_at,
                     nonce="{}_{}".format(run_id, index),
                     required_columns=spec["required"], phase=spec["phase"],
-                    source_semantics="provider_event_pool", error=error)
+                    source_semantics="provider_event_pool",
+                    quality_codes=("SHADOW_ONLY_FORWARD_SAMPLE",),
+                    strategy_feature_allowed=False, error=error)
             run["captures"].append(meta)
 
     statuses = pd.Series([item["status"] for item in run["captures"]]).value_counts()
@@ -311,6 +326,25 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
         run["status"] = "captured_partial"
     else:
         run["status"] = "captured_no_asof_eligible_data"
+    archive_complete = policy.archive_complete(run["captures"])
+    anchor = establish_forward_anchor(
+        output_dir, policy, trade_date=trade_date, run_id=run_id,
+        created_at=now.isoformat(), captures=run["captures"])
+    if anchor is None:
+        anchor = read_forward_anchor(output_dir, policy)
+    anchor_date = (int(anchor["anchor_trade_date"])
+                   if anchor is not None else None)
+    run["forward_archive_complete"] = archive_complete
+    run["forward_anchor_trade_date"] = anchor_date
+    run["forward_sample_eligible"] = bool(
+        archive_complete and anchor_date is not None and
+        trade_date >= anchor_date)
+    if trade_date < policy.nominal_start_date:
+        run["forward_sample_status"] = "prestart_shadow"
+    elif run["forward_sample_eligible"]:
+        run["forward_sample_status"] = "eligible_forward_shadow"
+    else:
+        run["forward_sample_status"] = "awaiting_successful_archive"
     run["completed_at"] = datetime.now(SHANGHAI).isoformat()
     _atomic_json(run_path, run)
     return run
@@ -325,6 +359,8 @@ def main():
         "/Users/wjy/abu/data/selection_research/shortline_forward"))
     parser.add_argument("--paper-dir", type=Path, default=Path(
         "/Users/wjy/abu/paper/vcp_residual_v2"))
+    parser.add_argument("--forward-config", type=Path,
+                        default=DEFAULT_FORWARD_CONFIG)
     parser.add_argument("--now", help="test/recovery clock with timezone")
     args = parser.parse_args()
     now = (datetime.fromisoformat(args.now).astimezone(SHANGHAI) if args.now
@@ -332,7 +368,7 @@ def main():
     trade_date = args.trade_date or int(now.strftime("%Y%m%d"))
     result = collect(
         trade_date=trade_date, phase=args.phase, output_dir=args.output_dir,
-        paper_dir=args.paper_dir, now=now)
+        paper_dir=args.paper_dir, now=now, forward_config=args.forward_config)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

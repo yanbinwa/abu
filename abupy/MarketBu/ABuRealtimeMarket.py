@@ -30,7 +30,16 @@ MINUTE_BAR_COLUMNS = (
     "symbol", "timestamp", "received_at", "interval_minutes", "open",
     "high", "low", "close", "volume", "amount", "average",
     "change_pct", "turnover_rate", "bar_complete", "source",
+    "source_timestamp", "bar_start", "bar_end", "request_started_at",
+    "available_at", "open_raw", "high_raw", "low_raw", "close_raw",
+    "volume_shares", "amount_raw", "revision", "is_complete",
+    "quality_codes",
 )
+
+MINUTE_TIMESTAMP_SEMANTICS = {
+    "akshare_eastmoney_minute": "bar_end",
+    "akshare_sina_minute": "bar_end",
+}
 
 
 class RealtimeMarketDataError(RuntimeError):
@@ -48,6 +57,64 @@ class MarketDataHealth:
     consecutive_failures: int
     last_latency_ms: float | None
     last_record_count: int
+    transport_ok: bool = False
+    data_present: bool = False
+    data_fresh: bool = False
+    fields_valid: bool = False
+    reason_codes: tuple[str, ...] = ()
+
+    def to_dict(self):
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MinuteBarEvent:
+    """Provider-neutral completed or in-progress minute bar event."""
+    symbol: str
+    interval_minutes: int
+    source_timestamp: str
+    bar_start: str
+    bar_end: str
+    request_started_at: str
+    received_at: str
+    available_at: str
+    open_raw: float
+    high_raw: float
+    low_raw: float
+    close_raw: float
+    volume_shares: float
+    amount_raw: float | None
+    source: str
+    revision: int = 1
+    is_complete: bool = True
+    quality_codes: tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if self.interval_minutes <= 0:
+            raise ValueError("interval_minutes must be positive")
+        timestamps = [
+            _as_shanghai_timestamp(value) for value in (
+                self.source_timestamp, self.bar_start, self.bar_end,
+                self.request_started_at, self.received_at, self.available_at,
+            )
+        ]
+        _, bar_start, bar_end, request_started, received, available = timestamps
+        if not bar_start < bar_end:
+            raise ValueError("bar_start must be before bar_end")
+        if request_started > received or received > available:
+            raise ValueError("request/receive/available timestamps are reversed")
+        values = (self.open_raw, self.high_raw, self.low_raw, self.close_raw)
+        if not all(np.isfinite(value) and value > 0 for value in values):
+            raise ValueError("OHLC must be finite and positive")
+        if self.low_raw > min(self.open_raw, self.close_raw) or \
+                self.high_raw < max(self.open_raw, self.close_raw) or \
+                self.low_raw > self.high_raw:
+            raise ValueError("invalid OHLC envelope")
+        if not np.isfinite(self.volume_shares) or self.volume_shares < 0:
+            raise ValueError("volume_shares must be finite and non-negative")
+        if self.amount_raw is not None and (
+                not np.isfinite(self.amount_raw) or self.amount_raw < 0):
+            raise ValueError("amount_raw must be non-negative when present")
 
     def to_dict(self):
         return asdict(self)
@@ -113,6 +180,11 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
         self._consecutive_failures = 0
         self._last_latency_ms = None
         self._last_record_count = 0
+        self._transport_ok = False
+        self._data_present = False
+        self._data_fresh = False
+        self._fields_valid = False
+        self._reason_codes = ()
 
     @abstractmethod
     def snapshot(self, symbols=None, strict=True):
@@ -122,7 +194,8 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
     def minute_bars(self, symbol, period="1", start=None, end=None, adjust=""):
         """Return normalized historical/current minute bars."""
 
-    def _success(self, provider, started, count, warning=None):
+    def _success(self, provider, started, count, warning=None,
+                 data_fresh=True, fields_valid=True, reason_codes=()):
         with self._health_lock:
             self._last_provider = provider
             self._last_success_at = _as_shanghai_timestamp(self._now())
@@ -131,6 +204,11 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
             self._consecutive_failures = 0
             self._last_latency_ms = round((time.monotonic() - started) * 1000, 3)
             self._last_record_count = int(count)
+            self._transport_ok = True
+            self._data_present = bool(count)
+            self._data_fresh = bool(data_fresh and count)
+            self._fields_valid = bool(fields_valid and count)
+            self._reason_codes = tuple(reason_codes)
 
     def _failure(self, error, started):
         with self._health_lock:
@@ -138,6 +216,12 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
             self._last_warning = None
             self._consecutive_failures += 1
             self._last_latency_ms = round((time.monotonic() - started) * 1000, 3)
+            self._transport_ok = not isinstance(error, (OSError, TimeoutError))
+            self._data_present = False
+            self._data_fresh = False
+            self._fields_valid = False
+            code = getattr(error, "reason_code", None)
+            self._reason_codes = (code or "PROVIDER_ERROR",)
 
     def health(self):
         now = _as_shanghai_timestamp(self._now())
@@ -156,6 +240,11 @@ class RealtimeMarketDataAdapter(object, metaclass=ABCMeta):
                 consecutive_failures=self._consecutive_failures,
                 last_latency_ms=self._last_latency_ms,
                 last_record_count=self._last_record_count,
+                transport_ok=self._transport_ok,
+                data_present=self._data_present,
+                data_fresh=self._data_fresh,
+                fields_valid=self._fields_valid,
+                reason_codes=self._reason_codes,
             )
 
     def poll_snapshots(self, callback, symbols=None, interval_seconds=5.0,
@@ -278,7 +367,6 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
 
     def snapshot(self, symbols=None, strict=True):
         started = time.monotonic()
-        received_at = _as_shanghai_timestamp(self._now())
         warning = None
         try:
             try:
@@ -292,6 +380,7 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
                 raw = self._request(self.ak.stock_zh_a_spot)
                 provider = "akshare_sina"
                 multiplier = 1.0
+            received_at = _as_shanghai_timestamp(self._now())
             frame = self._normalize_snapshot(
                 raw, provider, received_at, volume_multiplier=multiplier)
             if symbols is not None:
@@ -310,8 +399,8 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
             raise RealtimeMarketDataError("AKShare snapshot failed") from error
 
     @staticmethod
-    def _normalize_minute_bars(raw, symbol, period, received_at,
-                               volume_multiplier, provider):
+    def _normalize_minute_bars(raw, symbol, period, request_started_at,
+                               received_at, volume_multiplier, provider):
         if raw is None or raw.empty:
             raise RealtimeMarketDataError("minute-bar response is empty")
         aliases = {
@@ -344,10 +433,50 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
         frame["interval_minutes"] = int(period)
         frame["volume"] = frame.volume * float(volume_multiplier)
         frame["turnover_rate"] = frame.turnover_pct / 100.0
-        # Providers label bars by their period endpoint. Exclude the timestamp
-        # matching the local current minute because it can still be updating.
-        frame["bar_complete"] = frame.timestamp < received_at.floor("min")
+        semantics = MINUTE_TIMESTAMP_SEMANTICS.get(provider)
+        if semantics != "bar_end":
+            raise RealtimeMarketDataError(
+                "unknown minute timestamp semantics for {}".format(provider))
+        frame["source_timestamp"] = frame.timestamp
+        frame["bar_end"] = frame.timestamp
+        frame["bar_start"] = frame.bar_end - pd.to_timedelta(
+            int(period), unit="min")
+        frame["request_started_at"] = request_started_at
+        frame["available_at"] = received_at
+        frame["bar_complete"] = frame.bar_end.le(received_at.floor("min"))
         frame["source"] = provider
+        frame["open_raw"] = frame.open
+        frame["high_raw"] = frame.high
+        frame["low_raw"] = frame.low
+        frame["close_raw"] = frame.close
+        frame["volume_shares"] = frame.volume
+        frame["amount_raw"] = frame.amount
+        frame["revision"] = 1
+        frame["is_complete"] = frame.bar_complete
+        frame["quality_codes"] = frame.apply(
+            lambda row: tuple(
+                code for code, present in (
+                    ("AMOUNT_MISSING", pd.isna(row.amount_raw)),
+                    ("BAR_INCOMPLETE", not bool(row.is_complete)),
+                ) if present
+            ), axis=1)
+        for row in frame.itertuples(index=False):
+            MinuteBarEvent(
+                symbol=row.symbol, interval_minutes=row.interval_minutes,
+                source_timestamp=row.source_timestamp.isoformat(),
+                bar_start=row.bar_start.isoformat(),
+                bar_end=row.bar_end.isoformat(),
+                request_started_at=row.request_started_at.isoformat(),
+                received_at=row.received_at.isoformat(),
+                available_at=row.available_at.isoformat(),
+                open_raw=row.open_raw, high_raw=row.high_raw,
+                low_raw=row.low_raw, close_raw=row.close_raw,
+                volume_shares=row.volume_shares,
+                amount_raw=(None if pd.isna(row.amount_raw) else row.amount_raw),
+                source=row.source, revision=row.revision,
+                is_complete=row.is_complete,
+                quality_codes=row.quality_codes,
+            )
         frame = frame[list(MINUTE_BAR_COLUMNS)]
         frame.sort_values("timestamp", inplace=True)
         frame.drop_duplicates("timestamp", keep="last", inplace=True)
@@ -367,6 +496,7 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
             days = 5 if period == "1" else 120
             start = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
         started = time.monotonic()
+        request_started_at = _as_shanghai_timestamp(self._now())
         warning = None
         try:
             try:
@@ -374,8 +504,10 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
                     symbol=normalized_symbol[2:], start_date=str(start),
                     end_date=str(end), period=period, adjust=adjust))
                 provider = "akshare_eastmoney_minute"
+                received_at = _as_shanghai_timestamp(self._now())
                 frame = self._normalize_minute_bars(
-                    raw, normalized_symbol, period, now,
+                    raw, normalized_symbol, period, request_started_at,
+                    received_at,
                     volume_multiplier=self.minute_volume_multiplier,
                     provider=provider)
             except Exception as primary_error:
@@ -386,8 +518,10 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
                 raw = self._request(lambda: self.ak.stock_zh_a_minute(
                     symbol=normalized_symbol, period=period, adjust=adjust))
                 provider = "akshare_sina_minute"
+                received_at = _as_shanghai_timestamp(self._now())
                 frame = self._normalize_minute_bars(
-                    raw, normalized_symbol, period, now,
+                    raw, normalized_symbol, period, request_started_at,
+                    received_at,
                     volume_multiplier=1.0, provider=provider)
 
             start_at = _as_shanghai_timestamp(start)
@@ -395,7 +529,19 @@ class AKShareRealtimeMarketData(RealtimeMarketDataAdapter):
             frame = frame[
                 frame.timestamp.ge(start_at) & frame.timestamp.le(end_at)
             ].reset_index(drop=True)
-            self._success(provider, started, len(frame), warning=warning)
+            if frame.empty:
+                error = RealtimeMarketDataError(
+                    "minute-bar response has no rows in requested range")
+                error.reason_code = "NO_DATA"
+                raise error
+            complete = frame[frame.is_complete]
+            fresh = bool(len(complete) and
+                         complete.bar_end.max() >= received_at.floor("min") -
+                         pd.Timedelta(seconds=self.stale_after_seconds))
+            reasons = () if fresh else ("STALE_DATA",)
+            self._success(
+                provider, started, len(frame), warning=warning,
+                data_fresh=fresh, fields_valid=True, reason_codes=reasons)
             return frame
         except Exception as error:
             self._failure(error, started)

@@ -97,7 +97,8 @@ def annual_returns(curve, initial_cash=1_000_000.0):
 def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                      end_date, sync_dynamic_stops=False,
                      position_add_policy=None,
-                     position_add_execution_mode="executable"):
+                     position_add_execution_mode="executable",
+                     initial_cash=1_000_000.0):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -112,6 +113,7 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             policy_config.entry_rank_limit,
             policy_config.retention_rank_limit))
     executor = PortfolioExecutor(panel, ExecutionConfig(
+        initial_cash=float(initial_cash),
         slippage_bps=source_config.label_slippage_bps, mode="pit_corrected",
         max_positions=policy_config.target_positions))
     _seed_marks(executor, panel, first)

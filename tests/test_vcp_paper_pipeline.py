@@ -3,10 +3,24 @@ from datetime import datetime
 import unittest
 from zoneinfo import ZoneInfo
 
-from scripts.run_vcp_paper_pipeline import shortline_trade_date
+from scripts.run_vcp_paper_pipeline import (
+    enforce_shortline_shadow_contract, shortline_trade_date,
+)
 
 
 class VCPPaperPipelineTest(unittest.TestCase):
+
+    def test_shortline_contract_accepts_shadow_and_rejects_order_permission(self):
+        accepted = enforce_shortline_shadow_contract({
+            "status": "captured", "feature_mode": "shadow_only",
+            "order_mutation_allowed": False, "paper_order_effect": "none",
+        })
+        self.assertEqual(accepted["shadow_contract_status"], "passed")
+        rejected = enforce_shortline_shadow_contract({
+            "status": "captured", "feature_mode": "enforced",
+            "order_mutation_allowed": True, "paper_order_effect": "ranking",
+        })
+        self.assertEqual(rejected["status"], "shadow_contract_rejected")
 
     def test_new_market_update_routes_its_trade_date(self):
         value = shortline_trade_date(

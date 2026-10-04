@@ -12,6 +12,7 @@ import pandas as pd
 
 from abupy.AlphaBu.ABuShortLineEvents import (
     ImmutableShortLineSnapshotStore, ThemeTaxonomyMapping, ThemeTaxonomyStore,
+    load_shortline_forward_policy, read_forward_anchor,
 )
 from scripts.collect_shortline_events import DATASETS, collect, normalize_event_pool
 from scripts.audit_shortline_forward import audit
@@ -39,7 +40,47 @@ class FakeAkShare:
         raise AttributeError(name)
 
 
+class PartialAkShare(FakeAkShare):
+    def __getattr__(self, name):
+        if name == "stock_zt_pool_strong_em":
+            return lambda date: pd.DataFrame()
+        return super().__getattr__(name)
+
+
 class ShortLineForwardTest(unittest.TestCase):
+
+    def test_forward_policy_is_strict_and_permanently_shadow_only(self):
+        policy = load_shortline_forward_policy(
+            Path(__file__).resolve().parents[1] /
+            "configs/selection/shortline_forward_v1.json")
+        self.assertEqual(policy.nominal_start_date, 20261009)
+        self.assertEqual(policy.feature_mode, "shadow_only")
+        self.assertFalse(policy.order_mutation_allowed)
+        self.assertEqual(set(policy.required_datasets), set(DATASETS))
+
+    def test_audit_ignores_legacy_prestart_declaration_but_rejects_new_order_mode(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / "_runs/20261003/legacy.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(json.dumps({
+                "collector_version": "akshare_shortline_forward_v1",
+                "trade_date": 20261003, "status": "skipped_non_trading_day",
+                "feature_mode": "shadow_only",
+            }), encoding="utf-8")
+            _, legacy_report = audit(root)
+            self.assertEqual(legacy_report["status"], "empty")
+            governed = root / "_runs/20261009/governed.json"
+            governed.parent.mkdir(parents=True)
+            governed.write_text(json.dumps({
+                "collector_version": "akshare_shortline_forward_v1",
+                "trade_date": 20261009, "status": "captured",
+                "forward_policy_version": "shortline_forward_v1",
+                "feature_mode": "enforced", "order_mutation_allowed": True,
+                "forward_sample_eligible": False,
+            }), encoding="utf-8")
+            _, governed_report = audit(root)
+            self.assertEqual(governed_report["status"], "failed")
 
     def test_same_payload_keeps_both_raw_batches_and_reuses_normalization(self):
         with TemporaryDirectory() as directory:
@@ -124,13 +165,61 @@ class ShortLineForwardTest(unittest.TestCase):
                 ak_module=FakeAkShare(), calendar_dates={20261009})
             self.assertEqual(result["status"], "captured")
             self.assertEqual(result["asof_eligible_count"], len(DATASETS))
+            self.assertEqual(result["strategy_feature_eligible_count"], 0)
             self.assertEqual(result["feature_mode"], "shadow_only")
+            self.assertFalse(result["order_mutation_allowed"])
+            self.assertEqual(result["paper_order_effect"], "none")
+            self.assertTrue(result["forward_sample_eligible"])
+            self.assertEqual(result["forward_anchor_trade_date"], 20261009)
             self.assertEqual(len(result["market_snapshot_evidence"]), 2)
             self.assertEqual(len(list((root / "forward").glob(
                 "20261009/*/*/metadata.json"))), len(DATASETS))
             audit_rows, audit_report = audit(root / "forward")
             self.assertEqual(audit_report["status"], "passed")
             self.assertEqual(len(audit_rows), len(DATASETS))
+            self.assertEqual(audit_report["forward_anchor_trade_date"], 20261009)
+            self.assertEqual(audit_report["forward_eligible_dates"], [20261009])
+
+    def test_forward_anchor_waits_for_first_complete_archive_on_or_after_date(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            before = collect(
+                trade_date=20261008, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 8, 15, 30, tzinfo=SHANGHAI),
+                ak_module=FakeAkShare(), calendar_dates={20261008})
+            self.assertEqual(before["forward_sample_status"], "prestart_shadow")
+            self.assertFalse(before["forward_sample_eligible"])
+            self.assertIsNone(before["forward_anchor_trade_date"])
+
+            incomplete = collect(
+                trade_date=20261009, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 9, 15, 30, tzinfo=SHANGHAI),
+                ak_module=PartialAkShare(), calendar_dates={20261009})
+            self.assertEqual(
+                incomplete["forward_sample_status"],
+                "awaiting_successful_archive")
+            self.assertFalse(incomplete["forward_sample_eligible"])
+
+            first = collect(
+                trade_date=20261012, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 12, 15, 30, tzinfo=SHANGHAI),
+                ak_module=FakeAkShare(), calendar_dates={20261012})
+            self.assertEqual(first["forward_sample_status"],
+                             "eligible_forward_shadow")
+            self.assertTrue(first["forward_sample_eligible"])
+            self.assertEqual(first["forward_anchor_trade_date"], 20261012)
+
+            policy = load_shortline_forward_policy(
+                Path(__file__).resolve().parents[1] /
+                "configs/selection/shortline_forward_v1.json")
+            anchor = read_forward_anchor(root, policy)
+            self.assertEqual(anchor["anchor_trade_date"], 20261012)
+            _, report = audit(root)
+            self.assertEqual(report["status"], "passed")
+            self.assertEqual(report["forward_eligible_dates"], [20261012])
 
     def test_taxonomy_mapping_is_invisible_before_mapping_available_at(self):
         mapping = ThemeTaxonomyMapping(

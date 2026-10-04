@@ -3,7 +3,8 @@ import unittest
 from dataclasses import replace
 
 from abupy.AlphaBu.ABuPositionAddPolicy import (
-    CompositePositionAddPolicy, RebreakoutPolicy, TurtleAtrPolicy,
+    CompositePositionAddPolicy, MarketTrendGatePolicy, RebreakoutPolicy,
+    TurtleAtrPolicy,
 )
 from tests.test_protected_winner_policy import ProtectedWinnerPolicyTest
 
@@ -49,6 +50,27 @@ class PositionAddCompositeTest(unittest.TestCase):
                 (RebreakoutPolicy(), TurtleAtrPolicy()), mode).evaluate(context)
             self.assertTrue(result.triggered)
             self.assertIsNotNone(result.proposal)
+
+    def test_market_trend_gate_passes_only_above_pit_ma200(self):
+        policy = MarketTrendGatePolicy(TurtleAtrPolicy())
+        up = replace(self.context, portfolio_risk_snapshot={
+            **self.context.portfolio_risk_snapshot,
+            "benchmark_close": 3200.0, "benchmark_ma200": 3100.0})
+        passed = policy.evaluate(up)
+        self.assertTrue(passed.triggered)
+        self.assertIn("BENCHMARK_ABOVE_MA200", passed.proposal.reason_codes)
+        down = replace(self.context, portfolio_risk_snapshot={
+            **self.context.portfolio_risk_snapshot,
+            "benchmark_close": 3000.0, "benchmark_ma200": 3100.0})
+        rejected = policy.evaluate(down)
+        self.assertFalse(rejected.triggered)
+        self.assertIn("BENCHMARK_NOT_ABOVE_MA200", rejected.reason_codes)
+
+    def test_market_trend_gate_fails_closed_when_market_field_missing(self):
+        evaluation = MarketTrendGatePolicy(TurtleAtrPolicy()).evaluate(
+            self.context)
+        self.assertFalse(evaluation.triggered)
+        self.assertIn("benchmark_close", evaluation.missing_fields)
 
 
 if __name__ == "__main__":

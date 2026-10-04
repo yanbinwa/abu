@@ -1,0 +1,11 @@
+{
+  "adjust": "",
+  "batch_format": "jsonl",
+  "interval_minutes": 1,
+  "manifest_mode": "immutable_batches_with_atomic_pointer",
+  "provider_priority": [
+    "akshare_eastmoney_minute",
+    "akshare_sina_minute"
+  ],
+  "schema_version": "minute_data_v1"
+}
