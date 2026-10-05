@@ -34,6 +34,8 @@ an offset and operational timestamps use `Asia/Shanghai`.
    reservations without changing v1 tables in place.
 8. Schema v3 adds the immutable account daily-close projection. It is a separate migration because
    published migration files are never edited after release.
+9. Schema v4 adds per-attempt notification delivery history and audited operator actions; v3 remains
+   immutable.
 
 ## Transaction boundaries
 

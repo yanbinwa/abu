@@ -61,6 +61,19 @@ class OperationalSchemaV2Test(unittest.TestCase):
                 "AND name='account_daily_closes'").fetchone())
             v3.close()
 
+    def test_v4_adds_notification_audit_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = OperationalStore(
+                Path(directory) / "state.sqlite3", target_schema_version=4)
+            self.assertEqual(4, store.connection.execute(
+                "SELECT max(version) FROM schema_migrations").fetchone()[0])
+            for table in ("notification_delivery_attempts",
+                          "notification_operator_actions"):
+                self.assertIsNotNone(store.connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,)).fetchone())
+            store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

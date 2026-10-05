@@ -417,6 +417,13 @@ class TransactionalIntradayBroker(object):
                     "execution_states": states,
                     "outcomes": outcomes,
                     "fills": fills,
+                    "chart_bars": {
+                        fill["symbol"]: [
+                            asdict(item) for item in
+                            snapshot_batch.events_by_symbol.get(
+                                fill["symbol"], ())]
+                        for fill in fills
+                    },
                 },
                 value={"outcomes": outcomes, "fills": fills},
                 notification_parts=(

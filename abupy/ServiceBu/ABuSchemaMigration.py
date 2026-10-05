@@ -7,7 +7,7 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 SCHEMA_NAME = "paper_service_operational_v1"
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 
 
 def _schema_path():
@@ -20,6 +20,10 @@ def _schema_v2_path():
 
 def _schema_v3_path():
     return Path(__file__).resolve().parent / "schemas" / "operational_v3.sql"
+
+
+def _schema_v4_path():
+    return Path(__file__).resolve().parent / "schemas" / "operational_v4.sql"
 
 
 def schema_sha256(path=None):
@@ -127,6 +131,31 @@ def apply_schema(connection, target_version=1):
                 "(3, 'paper_service_operational_v3', " \
                 "strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}');\nCOMMIT;".format(
                     "\n".join(lines), safe_hash)
+            try:
+                connection.executescript(script)
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
+        digests.append(digest)
+    if target >= 4:
+        path = _schema_v4_path()
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        existing = connection.execute(
+            "SELECT sha256 FROM schema_migrations WHERE version=4").fetchone()
+        if existing is not None:
+            if existing[0] != digest:
+                raise ValueError("schema v4 hash differs from applied migration")
+        else:
+            safe_hash = digest.replace("'", "''")
+            lines = [line for line in path.read_text(encoding="utf-8").splitlines()
+                     if not line.strip().upper().startswith("PRAGMA ")]
+            script = "BEGIN EXCLUSIVE;\n{}\nINSERT INTO schema_migrations " \
+                "(version,name,applied_at,sha256) VALUES " \
+                "(4,'paper_service_operational_v4',"
+            script += "strftime('%Y-%m-%dT%H:%M:%fZ','now'),'{}');\nCOMMIT;".format(
+                safe_hash)
+            script = script.format("\n".join(lines))
             try:
                 connection.executescript(script)
             except Exception:

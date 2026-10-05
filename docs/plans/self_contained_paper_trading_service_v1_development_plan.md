@@ -551,14 +551,14 @@ stream gap、涨停、停牌、容量限制、阶段提前到达、重复事件�
 
 ### 13.2 任务
 
-- [ ] M7-T01 实现 notification event 和 TEXT/CHART_IMAGE 分片。
-- [ ] M7-T02 实现图表渲染任务，标记信号、委托、成交、止损和原因。
-- [ ] M7-T03 实现分片状态机和独立重试。
-- [ ] M7-T04 实现 `UNKNOWN -> RETRY_PENDING`。
-- [ ] M7-T05 实现带抖动指数退避和最大退避间隔。
-- [ ] M7-T06 达到自动尝试阈值后进入 `REQUIRES_ATTENTION`。
-- [ ] M7-T07 实现人工 retry/abandon CLI，并记录操作者、原因和时间。
-- [ ] M7-T08 企业微信消息显示短事件 ID，便于识别重复。
+- [x] M7-T01 实现 notification event 和 TEXT/CHART_IMAGE 分片。
+- [x] M7-T02 实现文字与分钟K线图渲染，标记成交价和原因上下文。
+- [x] M7-T03 实现分片状态机、逐次投递审计和独立重试。
+- [x] M7-T04 实现 `UNKNOWN -> RETRY_PENDING`。
+- [x] M7-T05 实现带确定性抖动的指数退避和最大退避间隔。
+- [x] M7-T06 达到自动尝试阈值后进入 `REQUIRES_ATTENTION`。
+- [x] M7-T07 实现人工 retry/abandon CLI，并记录操作者、原因和时间。
+- [x] M7-T08 企业微信消息显示短事件 ID，便于识别重复。
 - [ ] M7-T09 迁移现有 bot 或建立受控桥接，不允许先发网络消息再创建 outbox。
 - [ ] M7-T10 对 webhook、token、用户 ID 和日志执行脱敏检查。
 

@@ -134,8 +134,9 @@ class MockPaperTradingScenario(object):
                     self.SESSION, 3, self.NOW)
             previous = event["event_id"]
         previous_snapshot = previous_event = None
-        for sequence, bars in ((1, (self._bar("09:35:00", 10.0),)),
-                               (2, (self._bar("09:37:00", 10.2),))):
+        trigger_bar = self._bar("09:35:00", 10.0)
+        for sequence, bars in ((1, (trigger_bar,)),
+                               (2, (trigger_bar, self._bar("09:37:00", 10.2)))):
             snapshot_id = "mock-minute-{}".format(sequence)
             cutoff = bars[-1].available_at
             with store.transaction() as connection:
