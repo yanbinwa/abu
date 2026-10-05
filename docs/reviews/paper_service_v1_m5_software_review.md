@@ -84,6 +84,6 @@
 
 ## 下一动作
 
-发布冻结 runtime，并仅启用 `--enable-minute-shadow` 的 data-only handler；确认运行环境具备
-冻结版本的 AKShare 依赖后，从 2026-10-09 起每日审计。自然门禁满足前，可以继续进行不
-依赖分钟政策准入的准备工作，但不能让分钟结果改变账户。
+冻结 runtime 和 `--enable-minute-shadow` data-only handler 已启用，证据见
+`paper_service_v1_m5_shadow_activation_20261005.md`。从 2026-10-09 起每日审计；自然门禁
+满足前，可以继续进行不依赖分钟政策准入的准备工作，但不能让分钟结果改变账户。
