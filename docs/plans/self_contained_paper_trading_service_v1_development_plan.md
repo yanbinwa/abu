@@ -2,12 +2,12 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | In progress；M0—M2 已验收，M3 data-only shadow 已激活并等待 5 个有效交易日门禁 |
+| 状态 | In progress；M3 data-only shadow 等待 5 日门禁，M4-T01—T09 软件完成、T10 暂缓 |
 | 计划版本 | 0.1.0 |
 | 创建日期 | 2026-10-05 |
 | 对应规格 | [自闭环多策略模拟交易系统设计 v1](../specs/self_contained_paper_trading_service_v1.md) |
 | 候选代码基线 | `3030291`；实施开始时重新记录实际 `HEAD`、分支和工作区状态 |
-| 当前阶段 | M3：日频数据 shadow 观察已启动（尚未批准进入 M4） |
+| 当前阶段 | M3 自然时间观察与 M4 隔离软件开发并行；未批准 M4 自然时间账户运行 |
 | 运行边界 | 研究、影子盘和模拟盘；不连接券商，不发送真实委托 |
 
 ## 1. 计划目标
@@ -203,7 +203,8 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M1 | 完成 | `docs/reviews/paper_service_v1_m1_review.md` |
 | M2 | 完成 | `docs/reviews/paper_service_v1_m2_review.md` |
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
-| M4—M9 | 未开始 | — |
+| M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
+| M5—M9 | 未开始 | — |
 
 ## 6. M0：契约、schema 与黄金基线
 
@@ -389,15 +390,15 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 
 ### 10.2 任务
 
-- [ ] M4-T01 实现 `strategy_instances`、`strategy_activations` 和配置哈希。
-- [ ] M4-T02 实现稳定 `account_id`，禁止由 config hash 推导。
-- [ ] M4-T03 扩展交易 envelope，使订单、成交和风险决策显式携带账户身份。
-- [ ] M4-T04 实现 `logical_trades`、position lots 和管理政策归属。
-- [ ] M4-T05 实现 activation 切换和逐笔 `PositionManagementTakenOver`。
-- [ ] M4-T06 实现 `StrategyPlugin` 和只读 `AccountView`。
-- [ ] M4-T07 编写 VCP 适配器，不改变信号和退出时序。
-- [ ] M4-T08 编写 Alpha158 适配器，不改变现有 shadow 规则。
-- [ ] M4-T09 将现有 `PortfolioExecutor` 包装为可测试领域计算核心。
+- [x] M4-T01 实现 `strategy_instances`、`strategy_activations` 和配置哈希。
+- [x] M4-T02 实现稳定 `account_id`，禁止由 config hash 推导。
+- [x] M4-T03 扩展交易 envelope，使订单、成交和风险决策显式携带账户身份。
+- [x] M4-T04 实现 `logical_trades`、position lots 和管理政策归属。
+- [x] M4-T05 实现 activation 切换和逐笔 `PositionManagementTakenOver`。
+- [x] M4-T06 实现 `StrategyPlugin` 和只读 `AccountView`。
+- [x] M4-T07 编写 VCP 适配器，不改变信号和退出时序。
+- [x] M4-T08 编写 Alpha158 适配器，不改变现有 shadow 规则。
+- [x] M4-T09 将现有 `PortfolioExecutor` 包装为可测试领域计算核心。
 - [ ] M4-T10 创建两个以上相同或不同策略配置的独立 shadow 账户。
 
 ### 10.3 自测

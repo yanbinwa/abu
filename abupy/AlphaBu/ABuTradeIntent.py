@@ -62,6 +62,10 @@ class TradeIntent:
     proposal_id: str = ""
     logical_order_id: str = ""
     schema_version: str = "position_lineage_v1"
+    account_id: str = ""
+    strategy_instance_id: str = ""
+    actor_activation_id: str = ""
+    source_snapshot_id: str = ""
 
     def __post_init__(self):
         if self.side not in ("buy", "sell"):
@@ -115,6 +119,10 @@ class ApprovedOrder:
     signal_price_adjusted: float | None = None
     adjustment_factor_signal: float | None = None
     portfolio_equity_asof: float = 0.0
+    account_id: str = ""
+    strategy_instance_id: str = ""
+    actor_activation_id: str = ""
+    source_snapshot_id: str = ""
 
     def __post_init__(self):
         if self.side not in ("buy", "sell"):
@@ -224,6 +232,10 @@ class Fill:
     data_revision: int = 0
     latency_model: str = ""
     available_at: str = ""
+    account_id: str = ""
+    strategy_instance_id: str = ""
+    actor_activation_id: str = ""
+    source_snapshot_id: str = ""
 
     def __post_init__(self):
         if self.side not in ("buy", "sell"):

@@ -74,6 +74,20 @@ def liberal(**changes):
 
 class PortfolioRiskTest(unittest.TestCase):
 
+    def test_m4_account_namespace_flows_into_risk_decision(self):
+        panel = make_panel()
+        executor = PortfolioExecutor(panel, ExecutionConfig(initial_cash=100_000))
+        source = replace(
+            make_intent(panel), account_id="account-a",
+            strategy_instance_id="instance-a",
+            actor_activation_id="activation-a", source_snapshot_id="daily-a")
+        decision = PortfolioRiskEngine(panel, liberal()).evaluate(
+            executor, source, 125, 126, requested_quantity=100)
+        self.assertEqual("account-a", decision.account_id)
+        self.assertEqual("instance-a", decision.strategy_instance_id)
+        self.assertEqual("activation-a", decision.actor_activation_id)
+        self.assertEqual("daily-a", decision.source_snapshot_id)
+
     def test_config_is_strict_and_hash_is_stable(self):
         path = Path(__file__).parents[1] / "configs/selection/risk_v1.json"
         first = load_risk_config(path); second = load_risk_config(path)

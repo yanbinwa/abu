@@ -101,6 +101,10 @@ class RiskDecision:
     quantity_notional_cap: int = 0
     quantity_trade_add_risk: int = 0
     trade_add_risk_headroom_cash: float = 0.0
+    account_id: str = ""
+    strategy_instance_id: str = ""
+    actor_activation_id: str = ""
+    source_snapshot_id: str = ""
 
     def to_dict(self):
         return asdict(self)
@@ -455,6 +459,10 @@ class PortfolioRiskEngine(object):
             quantity_notional_cap=quantity_notional,
             quantity_trade_add_risk=quantity_trade_add,
             trade_add_risk_headroom_cash=trade_add_headroom,
+            account_id=intent.account_id,
+            strategy_instance_id=intent.strategy_instance_id,
+            actor_activation_id=intent.actor_activation_id,
+            source_snapshot_id=intent.source_snapshot_id,
         )
         self.decisions.append(result)
         return result

@@ -177,6 +177,10 @@ class PortfolioExecutor(object):
             signal_price_adjusted=intent.signal_price_adjusted,
             adjustment_factor_signal=intent.adjustment_factor_signal,
             portfolio_equity_asof=float(portfolio_equity_asof or 0.0),
+            account_id=intent.account_id,
+            strategy_instance_id=intent.strategy_instance_id,
+            actor_activation_id=intent.actor_activation_id,
+            source_snapshot_id=intent.source_snapshot_id,
         )
         reserved = 0.0
         if order.side == "buy":
@@ -368,6 +372,10 @@ class PortfolioExecutor(object):
             candidate_bar_start=candidate_bar_start,
             data_source=data_source, data_revision=int(data_revision),
             available_at=available_at,
+            account_id=order.account_id,
+            strategy_instance_id=order.strategy_instance_id,
+            actor_activation_id=order.actor_activation_id,
+            source_snapshot_id=order.source_snapshot_id,
         )
         self.fills.append(fill)
         if status in ("rejected", "expired", "cancelled"):
@@ -493,6 +501,10 @@ class PortfolioExecutor(object):
             capacity_reference_bar_end=capacity_reference_bar_end,
             data_source=data_source, data_revision=int(data_revision),
             latency_model=latency_model, available_at=available_at,
+            account_id=order.account_id,
+            strategy_instance_id=order.strategy_instance_id,
+            actor_activation_id=order.actor_activation_id,
+            source_snapshot_id=order.source_snapshot_id,
         )
         sellable_date = int(self.panel.dates[min(day + 1, len(self.panel.dates)-1)])
         self.position_ledger.record_buy(
@@ -570,6 +582,10 @@ class PortfolioExecutor(object):
             proposal_id=order.proposal_id,
             logical_order_id=order.logical_order_id,
             physical_order_id=order.physical_order_id or order.order_id,
+            account_id=order.account_id,
+            strategy_instance_id=order.strategy_instance_id,
+            actor_activation_id=order.actor_activation_id,
+            source_snapshot_id=order.source_snapshot_id,
         )
         if self.position_ledger.active_trades(order.symbol):
             self.position_ledger.record_sell(
