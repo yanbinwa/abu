@@ -64,6 +64,14 @@ class OperationalStore(object):
                 (service_instance_id, host_name, int(process_id), started_at,
                  repository_commit, config_sha256))
 
+    def recover_stale_service_instances(self, recovered_at):
+        with self.transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE service_instances SET stopped_at=?, "
+                "stop_reason='SERVICE_RESTART_DETECTED' WHERE stopped_at IS NULL",
+                (recovered_at,))
+            return cursor.rowcount
+
     def record_service_stop(self, service_instance_id, stopped_at, reason):
         with self.transaction() as connection:
             cursor = connection.execute(

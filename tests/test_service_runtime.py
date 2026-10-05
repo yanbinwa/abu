@@ -46,6 +46,7 @@ class ServiceRuntimeTest(unittest.TestCase):
             config, jobs = self._files(root)
             service = ServiceRuntime(config, jobs)
             result = service.start()
+            self.assertEqual(0, result["recovered_instances"])
             self.assertEqual([], result["schedule"]["registered"])
             self.assertEqual(["heartbeat"], result["schedule"]["deferred"])
             heartbeat = json.loads(service.heartbeat_path.read_text(encoding="utf-8"))
@@ -83,6 +84,15 @@ class ServiceRuntimeTest(unittest.TestCase):
             self.assertEqual([], result["schedule"]["deferred"])
             service.stop("test")
             self.assertEqual([], called)
+
+    def test_signal_requests_graceful_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, jobs = self._files(root)
+            service = ServiceRuntime(config, jobs)
+            service.request_stop(15)
+            self.assertTrue(service.stop_event.is_set())
+            self.assertEqual("signal:15", service.requested_stop_reason)
 
     def test_running_heartbeat_preserves_registered_schedule(self):
         with tempfile.TemporaryDirectory() as directory:

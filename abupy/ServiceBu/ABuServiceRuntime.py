@@ -4,10 +4,11 @@ import hashlib
 import json
 import os
 import platform
+import signal
 import socket
 import subprocess
-import time
 import uuid
+import threading
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -51,6 +52,8 @@ class ServiceRuntime(object):
         self.job_store = None
         self.scheduler = ProjectScheduler(self.config["timezone"])
         self.active_schedule = {"registered": [], "deferred": []}
+        self.stop_event = threading.Event()
+        self.requested_stop_reason = "requested"
         self.heartbeat_path = Path(self.config["runtime_root"]) / "run" / "heartbeat.json"
 
     def _assert_safe_config(self):
@@ -71,6 +74,7 @@ class ServiceRuntime(object):
             self.store = OperationalStore(self.config["database_path"])
             self.job_store = JobStore(self.store)
             started_at = _now()
+            recovered_instances = self.store.recover_stale_service_instances(started_at)
             self.store.record_service_start(
                 self.instance_id, socket.gethostname(), os.getpid(), started_at,
                 _git_head(self.repository_root), _canonical_hash(self.config))
@@ -85,11 +89,13 @@ class ServiceRuntime(object):
             schedule = self.scheduler.register(self.jobs["jobs"], wrapped)
             self.active_schedule = schedule
             self.write_heartbeat("RUNNING", recovered_attempts=recovered,
+                                 recovered_instances=recovered_instances,
                                  schedule=schedule)
             if start_scheduler:
                 self.scheduler.start()
             return {"service_instance_id": self.instance_id, "schedule": schedule,
-                    "recovered_attempts": recovered}
+                    "recovered_attempts": recovered,
+                    "recovered_instances": recovered_instances}
         except Exception:
             if self.store is not None:
                 self.store.close()
@@ -153,14 +159,22 @@ class ServiceRuntime(object):
 
     def run_forever(self, handlers=None):
         self.start(handlers=handlers, start_scheduler=True)
+        previous_term = signal.getsignal(signal.SIGTERM)
+        previous_int = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGTERM, self.request_stop)
+        signal.signal(signal.SIGINT, self.request_stop)
         try:
-            while True:
+            while not self.stop_event.wait(30):
                 self.write_heartbeat("RUNNING")
-                time.sleep(30)
-        except KeyboardInterrupt:
-            pass
         finally:
-            self.stop("requested")
+            signal.signal(signal.SIGTERM, previous_term)
+            signal.signal(signal.SIGINT, previous_int)
+            self.stop(self.requested_stop_reason)
+
+    def request_stop(self, signum=None, unused_frame=None):
+        self.requested_stop_reason = (
+            "signal:{}".format(signum) if signum is not None else "requested")
+        self.stop_event.set()
 
     def stop(self, reason="normal"):
         if self.store is None:

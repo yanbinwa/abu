@@ -41,6 +41,20 @@ class OperationalStoreTest(unittest.TestCase):
             self.assertEqual(0, count)
             store.close()
 
+    def test_stale_service_instance_is_closed_on_exclusive_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = OperationalStore(Path(directory) / "state.sqlite3")
+            store.record_service_start(
+                "stale", "local", 1, "start", "head", "a" * 64)
+            self.assertEqual(1, store.recover_stale_service_instances("recovered"))
+            row = store.connection.execute(
+                "SELECT stopped_at, stop_reason FROM service_instances "
+                "WHERE service_instance_id='stale'").fetchone()
+            self.assertEqual("recovered", row["stopped_at"])
+            self.assertEqual("SERVICE_RESTART_DETECTED", row["stop_reason"])
+            self.assertEqual(0, store.recover_stale_service_instances("again"))
+            store.close()
+
     def test_online_backup_and_empty_path_restore(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
