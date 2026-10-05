@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 
 from abupy.AlphaBu.ABuIntradayExecution import (
-    IntradayExecutionConfig, apply_intraday_outcome,
+    IntradayExecutionConfig, IntradayOrderMachine, apply_intraday_outcome,
     instruction_from_order, simulate_intraday_order,
 )
 from abupy.AlphaBu.ABuTradeIntent import ApprovedOrder
@@ -159,6 +159,36 @@ class IntradayExecutionTest(unittest.TestCase):
         self.assertEqual("filled", fill.status)
         self.assertEqual("M1", fill.execution_policy_id)
         self.assertEqual(0, executor.reserved_cash)
+
+    def test_machine_state_restores_without_replaying_consumed_bars(self):
+        order = approved()
+        config = IntradayExecutionConfig(slippage_bps=0)
+        instruction = instruction_from_order(order, 20250103, "M1", config)
+        reference = bar("09:35")
+        candidate = bar("09:37", opening=10.2)
+
+        machine = IntradayOrderMachine(instruction, order, config=config)
+        machine.on_bar(reference)
+        self.assertEqual("CANDIDATE", machine.state)
+        restored = IntradayOrderMachine.restore(
+            instruction, order, machine.export_state(), config=config)
+        restored.on_bar(candidate)
+
+        uninterrupted = IntradayOrderMachine(
+            instruction, order, config=config)
+        uninterrupted.on_bar(reference)
+        uninterrupted.on_bar(candidate)
+        self.assertEqual(uninterrupted.outcome(), restored.outcome())
+        self.assertEqual("FILLED", restored.state)
+
+    def test_machine_restore_rejects_corrupt_state(self):
+        order = approved()
+        instruction = instruction_from_order(order, 20250103, "M1")
+        machine = IntradayOrderMachine(instruction, order)
+        state = machine.export_state()
+        state["events"][0]["sequence"] = 2
+        with self.assertRaisesRegex(ValueError, "sequence is not contiguous"):
+            IntradayOrderMachine.restore(instruction, order, state)
 
 
 if __name__ == "__main__":

@@ -205,7 +205,8 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
 | M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
 | M5 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m5_software_review.md` |
-| M6—M9 | 未开始 | — |
+| M6 | T01—T05 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_transaction_foundation_review.md` |
+| M7—M9 | 未开始 | — |
 
 ## 6. M0：契约、schema 与黄金基线
 
@@ -469,11 +470,11 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 
 ### 12.2 任务
 
-- [ ] M6-T01 实现账户版本、串行命令队列和事务仓储。
-- [ ] M6-T02 将现金、持仓、订单、预留、成交和风险决策映射到 SQLite。
-- [ ] M6-T03 实现账户事件事务模板和 `processed_events` 幂等检查。
-- [ ] M6-T04 在同一事务写入账户变化、stream watermark、domain event 和 notification outbox。
-- [ ] M6-T05 将 `IntradayOrderMachine` 改为持久化增量状态转换，不重算全部历史 Bar。
+- [x] M6-T01 实现账户版本、串行命令队列和事务仓储。
+- [x] M6-T02 将现金、持仓、订单、预留、成交和风险决策映射到 SQLite。
+- [x] M6-T03 实现账户事件事务模板和 `processed_events` 幂等检查。
+- [x] M6-T04 在同一事务写入账户变化、stream watermark、domain event 和 notification outbox。
+- [x] M6-T05 将 `IntradayOrderMachine` 改为持久化增量状态转换，不重算全部历史 Bar。
 - [ ] M6-T06 接入 `hybrid_intraday_entry_v1`，只允许分钟买入执行。
 - [ ] M6-T07 保持既有日线卖出、核算和退出语义。
 - [ ] M6-T08 实现 `account_sessions` 和交易日阶段状态机。

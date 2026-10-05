@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import pandas as pd
 
@@ -273,6 +273,73 @@ class IntradayOrderMachine(object):
             available_at=(candidate.available_at if candidate else
                           self._reference.available_at if self._reference else ""),
         )
+
+    def export_state(self):
+        """Return the complete deterministic state needed for incremental resume."""
+        return {
+            "schema_version": "intraday_order_machine_state_v1",
+            "state": self.state,
+            "reason_code": self.reason_code,
+            "events": [asdict(item) for item in self.events],
+            "seen": [list(item) for item in sorted(self._seen)],
+            "candidate_after": (
+                None if self._candidate_after is None else
+                self._candidate_after.isoformat()),
+            "reference": (
+                None if self._reference is None else asdict(self._reference)),
+            "decision_at": (
+                None if self._decision_at is None else
+                self._decision_at.isoformat()),
+            "candidate": (
+                None if self._candidate is None else asdict(self._candidate)),
+            "fill_price": self._fill_price,
+        }
+
+    @classmethod
+    def restore(cls, instruction, order, state, config=None,
+                upper_limit_raw=None):
+        """Restore without replaying already consumed minute bars."""
+        if state.get("schema_version") != "intraday_order_machine_state_v1":
+            raise ValueError("intraday machine state version mismatch")
+        if instruction.order_id != order.order_id:
+            raise ValueError("instruction/order mismatch")
+        valid_states = frozenset((
+            "CREATED", "ACTIVE", "CANDIDATE", "FILLED", "CANCELLED",
+            "EXPIRED"))
+        if state.get("state") not in valid_states:
+            raise ValueError("invalid persisted intraday state")
+
+        def minute_event(payload):
+            if payload is None:
+                return None
+            value = dict(payload)
+            value["quality_codes"] = tuple(value.get("quality_codes", ()))
+            return MinuteBarEvent(**value)
+
+        machine = cls.__new__(cls)
+        machine.instruction = instruction
+        machine.order = order
+        machine.config = config or IntradayExecutionConfig()
+        machine.upper_limit_raw = upper_limit_raw
+        machine.state = state["state"]
+        machine.reason_code = state.get("reason_code", "")
+        machine.events = [OrderEvent(**item) for item in state.get("events", ())]
+        if any(item.sequence != index + 1
+               for index, item in enumerate(machine.events)):
+            raise ValueError("persisted order event sequence is not contiguous")
+        machine._seen = {tuple(item) for item in state.get("seen", ())}
+        machine._candidate_after = (
+            None if state.get("candidate_after") is None else
+            pd.Timestamp(state["candidate_after"]))
+        machine._reference = minute_event(state.get("reference"))
+        machine._decision_at = (
+            None if state.get("decision_at") is None else
+            pd.Timestamp(state["decision_at"]))
+        machine._candidate = minute_event(state.get("candidate"))
+        machine._fill_price = float(state.get("fill_price", 0.0))
+        if machine.events and machine.events[-1].state != machine.state:
+            raise ValueError("persisted machine state does not match last event")
+        return machine
 
 
 def simulate_intraday_order(instruction, order, bars, config=None,

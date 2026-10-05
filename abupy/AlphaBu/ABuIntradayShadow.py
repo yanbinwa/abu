@@ -15,14 +15,11 @@ from ..MarketBu.ABuMinuteBarStore import (
     MinuteBarStore, minute_events_from_frame,
 )
 from ..MarketBu.ABuRealtimeMarket import RealtimeMarketDataError
-from ..MarketBu.ABuRealtimeMarket import MinuteBarEvent
 from .ABuIntradayExecution import (
     IntradayExecutionConfig, IntradayOrderMachine, TERMINAL_STATES,
     instruction_from_order, simulate_intraday_order,
 )
-from .ABuTradeIntent import (
-    ApprovedOrder, IntradayExecutionInstruction, OrderEvent,
-)
+from .ABuTradeIntent import ApprovedOrder, IntradayExecutionInstruction
 
 
 SHADOW_STATE_VERSION = "intraday_shadow_state_v1"
@@ -127,58 +124,6 @@ def _session_end(instruction, config):
     candidate = pd.Timestamp("{}-{}-{}T{}+08:00".format(
         date[:4], date[4:6], date[6:], config.last_candidate_start))
     return candidate + pd.Timedelta(minutes=1)
-
-
-def _minute_event(payload):
-    if payload is None:
-        return None
-    value = dict(payload)
-    value["quality_codes"] = tuple(value.get("quality_codes", ()))
-    return MinuteBarEvent(**value)
-
-
-def _serialize_machine(machine):
-    return {
-        "state": machine.state,
-        "reason_code": machine.reason_code,
-        "events": [asdict(item) for item in machine.events],
-        "seen": [list(item) for item in sorted(machine._seen)],
-        "candidate_after": (None if machine._candidate_after is None else
-                            machine._candidate_after.isoformat()),
-        "reference": (None if machine._reference is None else
-                      asdict(machine._reference)),
-        "decision_at": (None if machine._decision_at is None else
-                         machine._decision_at.isoformat()),
-        "candidate": (None if machine._candidate is None else
-                      asdict(machine._candidate)),
-        "fill_price": machine._fill_price,
-    }
-
-
-def _restore_machine(instruction, order, config, upper_limit_raw, payload):
-    if payload is None:
-        return IntradayOrderMachine(
-            instruction, order, config=config,
-            upper_limit_raw=upper_limit_raw)
-    machine = IntradayOrderMachine.__new__(IntradayOrderMachine)
-    machine.instruction = instruction
-    machine.order = order
-    machine.config = config
-    machine.upper_limit_raw = upper_limit_raw
-    machine.state = payload["state"]
-    machine.reason_code = payload["reason_code"]
-    machine.events = [OrderEvent(**item) for item in payload["events"]]
-    machine._seen = {tuple(item) for item in payload.get("seen", ())}
-    machine._candidate_after = (
-        None if payload.get("candidate_after") is None else
-        pd.Timestamp(payload["candidate_after"]))
-    machine._reference = _minute_event(payload.get("reference"))
-    machine._decision_at = (
-        None if payload.get("decision_at") is None else
-        pd.Timestamp(payload["decision_at"]))
-    machine._candidate = _minute_event(payload.get("candidate"))
-    machine._fill_price = float(payload.get("fill_price", 0.0))
-    return machine
 
 
 class IntradayShadowRunner(object):
@@ -300,9 +245,15 @@ class IntradayShadowRunner(object):
                     state["outcomes"][order.order_id]["state"] in TERMINAL_STATES:
                 continue
             instruction = IntradayExecutionInstruction(**frozen["instruction"])
-            machine = _restore_machine(
-                instruction, order, config, frozen.get("upper_limit_raw"),
-                machine_states.get(order.order_id))
+            persisted = machine_states.get(order.order_id)
+            machine = (
+                IntradayOrderMachine(
+                    instruction, order, config=config,
+                    upper_limit_raw=frozen.get("upper_limit_raw"))
+                if persisted is None else
+                IntradayOrderMachine.restore(
+                    instruction, order, persisted, config=config,
+                    upper_limit_raw=frozen.get("upper_limit_raw")))
             for bar in snapshot_batch.events_by_symbol.get(order.symbol, ()):
                 machine.on_bar(bar)
             should_finalize = now >= _session_end(frozen["instruction"], config)
@@ -312,7 +263,7 @@ class IntradayShadowRunner(object):
                     state["order_events"].append(asdict(item))
                     new_event_ids.add(item.event_id)
             state["outcomes"][order.order_id] = asdict(outcome)
-            machine_states[order.order_id] = _serialize_machine(machine)
+            machine_states[order.order_id] = machine.export_state()
         state["last_consumed_minute_sequence"] = int(snapshot_batch.sequence_no)
         consumed.append(snapshot_batch.snapshot_id)
         state["polls"].append({
