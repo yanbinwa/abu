@@ -205,7 +205,7 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
 | M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
 | M5 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m5_software_review.md` |
-| M6 | T01—T05 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_transaction_foundation_review.md` |
+| M6 | T01—T05、T08—T09 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_preopen_barrier_review.md` |
 | M7—M9 | 未开始 | — |
 
 ## 6. M0：契约、schema 与黄金基线
@@ -477,8 +477,8 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 - [x] M6-T05 将 `IntradayOrderMachine` 改为持久化增量状态转换，不重算全部历史 Bar。
 - [ ] M6-T06 接入 `hybrid_intraday_entry_v1`，只允许分钟买入执行。
 - [ ] M6-T07 保持既有日线卖出、核算和退出语义。
-- [ ] M6-T08 实现 `account_sessions` 和交易日阶段状态机。
-- [ ] M6-T09 构建单一 `preopen_snapshot`，固定公司行为、证券状态、价格限制、应收截止和
+- [x] M6-T08 实现 `account_sessions` 和交易日阶段状态机。
+- [x] M6-T09 构建单一 `preopen_snapshot`，固定公司行为、证券状态、价格限制、应收截止和
   待执行订单；缺少任一必需输入时不进入 `PREOPEN_INPUTS_READY`。
 - [ ] M6-T10 分别实现应收/公司行为应用、开盘卖出和开启分钟买入的幂等阶段转换。
 - [ ] M6-T11 要求分钟买入事务校验 `INTRADAY_BUYS_ENABLED`。
