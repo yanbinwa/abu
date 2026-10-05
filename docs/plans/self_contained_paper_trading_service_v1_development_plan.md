@@ -205,7 +205,7 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
 | M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
 | M5 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m5_software_review.md` |
-| M6 | T01—T05、T08—T09 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_preopen_barrier_review.md` |
+| M6 | T01—T05、T08—T11 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_phase_coordination_mock_review.md` |
 | M7—M9 | 未开始 | — |
 
 ## 6. M0：契约、schema 与黄金基线
@@ -480,8 +480,8 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 - [x] M6-T08 实现 `account_sessions` 和交易日阶段状态机。
 - [x] M6-T09 构建单一 `preopen_snapshot`，固定公司行为、证券状态、价格限制、应收截止和
   待执行订单；缺少任一必需输入时不进入 `PREOPEN_INPUTS_READY`。
-- [ ] M6-T10 分别实现应收/公司行为应用、开盘卖出和开启分钟买入的幂等阶段转换。
-- [ ] M6-T11 要求分钟买入事务校验 `INTRADAY_BUYS_ENABLED`。
+- [x] M6-T10 分别实现应收/公司行为应用、开盘卖出和开启分钟买入的幂等阶段转换。
+- [x] M6-T11 要求分钟买入事务校验 `INTRADAY_BUYS_ENABLED`。
 - [ ] M6-T12 实现日终核算、阶段完成和账户对账。
 - [ ] M6-T13 实现账户、订单、成交和持仓的只读投影导出。
 - [ ] M6-T14 建立独立组合回放和 D0/M1/M2 配对比较入口。
@@ -527,6 +527,17 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 - 事务、故障注入和独立组合回放均通过；
 - 分钟数据自然时间门禁尚未满足时，不得接管现有模拟账户；
 - M6 Review 结论为 `TRANSACTIONAL_PAPER_SHADOW_ACCEPTED`。
+
+### 12.6 MOCK 与真实数据双门禁
+
+M6 软件开发不等待自然时间，可以使用合成事件、固定 snapshot 和故障注入完成
+`MOCK_SOFTWARE_ACCEPTED`。MOCK 验收至少覆盖正常成交、无成交、缺 Bar、乱序、revision、
+stream gap、涨停、停牌、容量限制、阶段提前到达、重复事件、事务中断和重启恢复。
+
+`MOCK_SOFTWARE_ACCEPTED` 只证明代码在已建模场景中满足契约，不能升级为
+`MINUTE_DATA_ONLY_ACCEPTED` 或 `TRANSACTIONAL_PAPER_SHADOW_ACCEPTED`。真实数据仍必须验证供应商
+延迟、覆盖率、字段漂移、真实修订、断流、停牌和数据源切换；通过 M5 自然时间门禁后，才能
+让独立 shadow 账户消费实时分钟 snapshot。
 
 ## 13. M7：企业微信通知和交易K线图
 

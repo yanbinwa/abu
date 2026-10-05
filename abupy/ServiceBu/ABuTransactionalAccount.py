@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from .ABuContentStore import sha256_json
 from .ABuDomainEventStore import DomainEventStore, build_domain_event
+from .ABuAccountSession import AccountSessionStore
 
 
 class AccountVersionConflict(RuntimeError):
@@ -356,3 +357,39 @@ class TransactionalAccountRepository(object):
                     previous_version=current,
                     account_version=context.next_version,
                     value=effects.value, replayed=False)
+
+    def execute_intraday_buy_event(
+            self, account_id, event_id, expected_version, processed_at,
+            trading_session, handler, *, effective_from_sequence=1):
+        """Execute the only v1 minute-buy transaction behind its day barrier."""
+        if not callable(handler):
+            raise TypeError("intraday buy handler must be callable")
+        session = int(trading_session)
+
+        def guarded(connection, context, event):
+            if context.status not in ("SHADOW", "PAPER"):
+                raise AccountCommandRejected(
+                    "account {} cannot execute minute buys while {}".format(
+                        account_id, context.status))
+            if (event["event_type"] != "MinuteSnapshotCommitted" or
+                    event["snapshot_id"] is None):
+                raise ValueError(
+                    "intraday buy requires a committed minute snapshot event")
+            if int(event["trading_session"] or 0) != session:
+                raise ValueError("minute event trading session mismatch")
+            snapshot = connection.execute(
+                "SELECT snapshot_type, status, trading_session "
+                "FROM market_snapshots WHERE snapshot_id=?",
+                (event["snapshot_id"],)).fetchone()
+            if (snapshot is None or snapshot["snapshot_type"] != "MINUTE" or
+                    snapshot["status"] != "COMMITTED" or
+                    int(snapshot["trading_session"]) != session):
+                raise ValueError(
+                    "committed MINUTE snapshot for trading session is required")
+            AccountSessionStore.require_phase(
+                connection, account_id, session, "INTRADAY_BUYS_ENABLED")
+            return handler(connection, context, event)
+
+        return self.execute_event(
+            account_id, event_id, expected_version, processed_at, guarded,
+            effective_from_sequence=effective_from_sequence)
