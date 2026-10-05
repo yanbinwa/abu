@@ -34,6 +34,15 @@ def _git_head(root):
             ["git", "rev-parse", "HEAD"], cwd=str(root), text=True,
             stderr=subprocess.DEVNULL).strip()
     except Exception:
+        manifest_path = Path(root) / "runtime_manifest.json"
+        if manifest_path.is_file():
+            try:
+                source_commit = json.loads(
+                    manifest_path.read_text(encoding="utf-8"))["source_commit"]
+                if isinstance(source_commit, str) and source_commit:
+                    return source_commit
+            except (KeyError, TypeError, ValueError, OSError):
+                pass
         return "UNKNOWN"
 
 

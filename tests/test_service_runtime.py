@@ -3,10 +3,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from abupy.ServiceBu.ABuServiceRuntime import ServiceRuntime
+from abupy.ServiceBu.ABuServiceRuntime import ServiceRuntime, _git_head
 
 
 class ServiceRuntimeTest(unittest.TestCase):
+
+    def test_frozen_runtime_manifest_supplies_source_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "runtime_manifest.json").write_text(json.dumps({
+                "source_commit": "abc123",
+            }), encoding="utf-8")
+            self.assertEqual("abc123", _git_head(root))
 
     def _files(self, root, **overrides):
         config = {
