@@ -73,7 +73,7 @@
   tests.test_intraday_shadow tests.test_portfolio_executor
 ```
 
-全量回归：`Ran 469 tests`，结果 `OK`。`compileall` 与 `git diff --check` 同时通过。
+全量回归：`Ran 470 tests`，结果 `OK`。`compileall` 与 `git diff --check` 同时通过。
 
 ## 尚未通过的门禁
 

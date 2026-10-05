@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -39,6 +40,30 @@ class OperationalStoreTest(unittest.TestCase):
             count = store.connection.execute(
                 "SELECT count(*) FROM service_instances").fetchone()[0]
             self.assertEqual(0, count)
+            store.close()
+
+    def test_worker_thread_uses_main_thread_store_with_serial_transactions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = OperationalStore(Path(directory) / "state.sqlite3")
+            failures = []
+
+            def worker(index):
+                try:
+                    store.record_service_start(
+                        "service-{}".format(index), "local", index + 1, "start",
+                        "head", "a" * 64)
+                except Exception as error:  # pragma: no cover - asserted below.
+                    failures.append(error)
+
+            threads = [threading.Thread(target=worker, args=(index,))
+                       for index in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual([], failures)
+            self.assertEqual(4, store.connection.execute(
+                "SELECT count(*) FROM service_instances").fetchone()[0])
             store.close()
 
     def test_stale_service_instance_is_closed_on_exclusive_restart(self):

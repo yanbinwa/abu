@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -37,22 +38,25 @@ class OperationalStore(object):
     def __init__(self, path, initialize=True):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._transaction_lock = threading.RLock()
         self.connection = sqlite3.connect(
-            str(self.path), timeout=5.0, isolation_level=None)
+            str(self.path), timeout=5.0, isolation_level=None,
+            check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         configure_connection(self.connection)
         self.schema_sha256 = apply_schema_v1(self.connection) if initialize else None
 
     @contextmanager
     def transaction(self, immediate=True):
-        self.connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-        try:
-            yield self.connection
-        except Exception:
-            self.connection.rollback()
-            raise
-        else:
-            self.connection.commit()
+        with self._transaction_lock:
+            self.connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+            try:
+                yield self.connection
+            except Exception:
+                self.connection.rollback()
+                raise
+            else:
+                self.connection.commit()
 
     def record_service_start(self, service_instance_id, host_name, process_id,
                              started_at, repository_commit, config_sha256):
@@ -82,8 +86,9 @@ class OperationalStore(object):
                 raise ValueError("service instance is missing or already stopped")
 
     def integrity_check(self):
-        result = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
-        foreign_keys = list(self.connection.execute("PRAGMA foreign_key_check"))
+        with self._transaction_lock:
+            result = self.connection.execute("PRAGMA integrity_check").fetchone()[0]
+            foreign_keys = list(self.connection.execute("PRAGMA foreign_key_check"))
         return {"integrity_check": result, "foreign_key_errors": len(foreign_keys)}
 
     def backup(self, backup_path, manifest_path, *, service_instance_id,
@@ -96,7 +101,8 @@ class OperationalStore(object):
             temporary.unlink()
         destination = sqlite3.connect(str(temporary))
         try:
-            self.connection.backup(destination)
+            with self._transaction_lock:
+                self.connection.backup(destination)
         finally:
             destination.close()
         with temporary.open("rb") as handle:
@@ -161,7 +167,8 @@ class OperationalStore(object):
         return destination_path
 
     def close(self):
-        self.connection.close()
+        with self._transaction_lock:
+            self.connection.close()
 
     def __enter__(self):
         return self
