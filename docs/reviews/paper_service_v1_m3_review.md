@@ -78,7 +78,7 @@ OK
 ### 3.2 M0—M3 累计目标测试
 
 ```text
-Ran 52 tests
+Ran 54 tests
 OK
 ```
 
@@ -93,7 +93,7 @@ OK
 
 ```text
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
-Ran 444 tests
+Ran 446 tests
 OK
 ```
 
@@ -119,7 +119,7 @@ OK
 4. 服务重启后的恢复结果；
 5. 连续 5 日成功率；任何遗漏或超时都会重置窗口。
 
-2026-10-05 已从提交 `fcb424b9a4be0ac1f10070129dc2619893e16318` 冻结最小运行包，
+2026-10-05 已从提交 `0df6e50b216039328e21f24231b147fb201853b9` 冻结最小运行包，
 并启动 data-only LaunchAgent。运行心跳确认只注册 `daily.snapshot_shadow`；账户、分钟、
 通知和策略作业均为 deferred。旧 Codex 自动任务仍是现有数据和账户的唯一写入者。部署
 证据见 `paper_service_v1_m3_shadow_activation_20261005.md`。

@@ -3,7 +3,7 @@
 | 字段 | 结果 |
 | --- | --- |
 | 激活日期 | 2026-10-05 |
-| 源提交 | `fcb424b9a4be0ac1f10070129dc2619893e16318` |
+| 源提交 | `0df6e50b216039328e21f24231b147fb201853b9` |
 | 模式 | data-only shadow |
 | 长期服务 | `com.abupy.paper-service` |
 | 账户写入 | false |
@@ -16,13 +16,13 @@ LaunchAgent 不直接加载工作区，而是运行不可变发布目录：
 
 ```text
 /Users/wjy/abu/service/paper_v1/runtime/releases/
-fcb424b9a4be0ac1f10070129dc2619893e16318
+0df6e50b216039328e21f24231b147fb201853b9
 ```
 
 运行 manifest SHA-256：
 
 ```text
-60f5ac704c5274b71d0ff7e6d889e023173183699ece58448e7f7ef5719be476
+f840b1a8ed229012f2f80d407da8ea4eb82a328ce4dd202b4b95a5c00557c97b
 ```
 
 专用 Python 3.11 环境仅安装：
@@ -36,7 +36,7 @@ fcb424b9a4be0ac1f10070129dc2619893e16318
 LaunchAgent plist SHA-256：
 
 ```text
-b482095d92037575b4fb88ffa669726ddb2423dd0de6a059917dd7c68e6b31a2
+739a8d0044da0532d284d516033a95c6272f5e08d8cf24513954d46a1372bed5
 ```
 
 ## 2. 激活后的调度边界
@@ -77,3 +77,8 @@ daily.reconcile
 本记录只代表 shadow 服务成功激活，不代表 M3 已准入。连续 5 个有效交易日窗口应从首个
 成功提交同日快照的交易日开始计算。每个有效日必须在 19:00 前完成，且新旧数据差异均有
 明确原因码；任何遗漏或超时都会重置窗口。
+
+准入判断由 `scripts/audit_daily_shadow_admission.py` 执行。激活当日的预期结果为
+`PENDING`、`expected_sessions_seen=0`，因为冻结的首个合格交易日是 2026-10-09；审计器
+只有在连续 5 个目标交易日的 job、snapshot、19:00 截止时间和 reconciliation 全部通过后
+才返回 `DAILY_DATA_SHADOW_ACCEPTED`。
