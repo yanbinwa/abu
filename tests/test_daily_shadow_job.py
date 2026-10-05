@@ -44,10 +44,17 @@ class DailyShadowSnapshotJobTest(unittest.TestCase):
                 store, root / "content", ROOT / "configs/service/daily_data_v1.json",
                 self._source_config(root), self._benchmark(root, 20261009), clock=clock)
             first = job()
+            store.connection.execute(
+                "DELETE FROM audit_findings "
+                "WHERE category='DAILY_SHADOW_RECONCILIATION'")
             second = job()
             self.assertEqual("COMMITTED", first["status"])
             self.assertEqual("ALREADY_COMMITTED", second["status"])
             self.assertEqual(first["snapshot_id"], second["snapshot_id"])
+            self.assertEqual(1, store.connection.execute(
+                "SELECT count(*) FROM audit_findings "
+                "WHERE category='DAILY_SHADOW_RECONCILIATION'"
+            ).fetchone()[0])
             store.close()
 
     def test_stale_benchmark_is_retryable_and_publishes_nothing(self):

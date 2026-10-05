@@ -1,0 +1,8 @@
+{
+  "schema_version": "daily_shadow_admission_v1",
+  "first_eligible_session": 20261009,
+  "required_consecutive_sessions": 5,
+  "daily_ready_deadline": "19:00:00",
+  "benchmark_pattern": "/Users/wjy/abu/data/csv/sh000300_*",
+  "accepted_status": "DAILY_DATA_SHADOW_ACCEPTED"
+}

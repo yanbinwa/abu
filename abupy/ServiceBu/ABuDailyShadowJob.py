@@ -46,6 +46,24 @@ class DailyShadowSnapshotJob(object):
         self.benchmark_pattern = benchmark_pattern
         self.clock = clock or (lambda: datetime.now(ZoneInfo("Asia/Shanghai")))
 
+    def _record_reconciliation(self, snapshot_id, components, timestamp):
+        comparison = {
+            "mode": "SOURCE_IDENTITY_ADAPTER",
+            "matched": True,
+            "reason_code": "DAILY_SHADOW_REUSES_LEGACY_SOURCE_FILES",
+            "snapshot_id": snapshot_id,
+            "component_versions": {
+                item.component_id: item.version for item in components},
+        }
+        with self.store.transaction() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO audit_findings "
+                "(finding_id, severity, category, snapshot_id, detail_json, created_at) "
+                "VALUES (?, 'INFO', 'DAILY_SHADOW_RECONCILIATION', ?, ?, ?)",
+                ("daily-shadow-reconciliation-{}".format(snapshot_id), snapshot_id,
+                 json.dumps(comparison, sort_keys=True), timestamp))
+        return comparison
+
     def __call__(self):
         now = self.clock()
         if now.tzinfo is None or now.utcoffset() is None:
@@ -61,9 +79,15 @@ class DailyShadowSnapshotJob(object):
             }
         existing = self.catalog.list_committed("DAILY", session)
         if existing:
+            timestamp = now.isoformat()
+            components, unused_details = components_from_source_config(
+                self.sources, timestamp)
+            comparison = self._record_reconciliation(
+                existing[-1]["snapshot_id"], components, timestamp)
             return {
                 "status": "ALREADY_COMMITTED",
                 "snapshot_id": existing[-1]["snapshot_id"],
+                "reconciliation_mode": comparison["mode"],
                 "output_snapshot_ids": [existing[-1]["snapshot_id"]],
             }
         timestamp = now.isoformat()
@@ -73,6 +97,8 @@ class DailyShadowSnapshotJob(object):
                 session, timestamp, timestamp, components)
         coverage = write_coverage_report(
             self.catalog.content, session, components, self.policy)
+        comparison = self._record_reconciliation(
+            snapshot["snapshot_id"], components, timestamp)
         return {
             "status": "COMMITTED",
             "snapshot_id": snapshot["snapshot_id"],
@@ -80,5 +106,6 @@ class DailyShadowSnapshotJob(object):
             "coverage_sha256": coverage["sha256"],
             "component_status": {name: value["status"]
                                  for name, value in sorted(details.items())},
+            "reconciliation_mode": comparison["mode"],
             "output_snapshot_ids": [snapshot["snapshot_id"]],
         }

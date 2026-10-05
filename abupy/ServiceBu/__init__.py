@@ -11,6 +11,7 @@ from .ABuDomainEventStore import (
     DomainEventStore, EventCollisionError, StreamSequenceError, build_domain_event,
 )
 from .ABuDailyShadowJob import DailyShadowSnapshotJob, latest_benchmark_session
+from .ABuDailyShadowAdmission import benchmark_sessions, evaluate_daily_shadow_admission
 from .ABuEventDispatcher import EventDispatcher, classify_late_event
 from .ABuJobStore import JobStore
 from .ABuMarketSnapshotCatalog import SnapshotCatalog
@@ -40,10 +41,12 @@ __all__ = [
     "SnapshotCatalog",
     "StreamSequenceError",
     "build_domain_event",
+    "benchmark_sessions",
     "compare_selection_panels",
     "components_from_source_config",
     "classify_late_event",
     "incremental_sessions",
+    "evaluate_daily_shadow_admission",
     "latest_benchmark_session",
     "normalize_daily_bars",
     "select_pit_records",
