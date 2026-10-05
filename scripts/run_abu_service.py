@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from abupy.ServiceBu import DailyShadowSnapshotJob, ServiceRuntime  # noqa: E402
+from abupy.ServiceBu import (  # noqa: E402
+    DailyShadowSnapshotJob, MinuteShadowSnapshotJob, ServiceRuntime,
+)
 
 
 def runtime(args):
@@ -25,6 +27,7 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=ROOT / "configs/service/service_v1.json")
     parser.add_argument("--jobs", type=Path, default=ROOT / "configs/service/jobs_v1.json")
     parser.add_argument("--enable-daily-shadow", action="store_true")
+    parser.add_argument("--enable-minute-shadow", action="store_true")
     args = parser.parse_args(argv)
     service = runtime(args)
     if args.command == "check":
@@ -40,6 +43,17 @@ def main(argv=None):
             service.config["daily_data_policy_path"],
             service.config["daily_source_config_path"],
             service.config["daily_benchmark_pattern"])()
+    if args.enable_minute_shadow:
+        minute_job = []
+
+        def run_minute_shadow():
+            if not minute_job:
+                minute_job.append(MinuteShadowSnapshotJob(
+                    service.store, service.config["snapshot_root"],
+                    service.config["minute_shadow_config_path"]))
+            return minute_job[0]()
+
+        handlers["minute.collect"] = run_minute_shadow
     service.run_forever(handlers=handlers)
     return 0
 

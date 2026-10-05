@@ -5,11 +5,19 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "watchlist_id", "watchlist_version", "trading_session",
+    "schema_version", "snapshot_id", "stream_id", "sequence_no",
+    "previous_snapshot_id", "decision_cutoff", "manifest_sha256",
+    "watchlist_id", "watchlist_version", "trading_session",
     "previous_watchlist_id", "symbols", "created_at", "reason_codes"
   ],
   "properties": {
     "schema_version": {"const": "watchlist_v1"},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "stream_id": {"type": "string", "pattern": "^market-watchlist:[0-9]{8}$"},
+    "sequence_no": {"type": "integer", "minimum": 1},
+    "previous_snapshot_id": {"type": ["string", "null"]},
+    "decision_cutoff": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "watchlist_id": {"type": "string", "minLength": 1},
     "watchlist_version": {"type": "integer", "minimum": 1},
     "trading_session": {"type": "integer"},
@@ -35,6 +43,12 @@
   "examples": [
     {
       "schema_version": "watchlist_v1",
+      "snapshot_id": "watchlist-example",
+      "stream_id": "market-watchlist:20261009",
+      "sequence_no": 1,
+      "previous_snapshot_id": null,
+      "decision_cutoff": "2026-10-09T09:20:00+08:00",
+      "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "watchlist_id": "watchlist-20261009-001",
       "watchlist_version": 1,
       "trading_session": 20261009,

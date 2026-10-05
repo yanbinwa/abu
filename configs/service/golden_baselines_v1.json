@@ -26,7 +26,7 @@
     "abupy/AlphaBu/ABuPortfolioExecutor.py": "b8fd07176d1feb479e6560ec7c43d72278b7ea20ab00ddb00cb58697a0b0a6f0",
     "abupy/AlphaBu/ABuTradeIntent.py": "ff5007b0f676fb8bb3ad19be66560dcf4da0874f41c671f9926fa1dbf00a9e1d",
     "abupy/AlphaBu/ABuIntradayExecution.py": "3725969bf768bec06e8d20a7d2b73d6b7e792617efb205db8e6871b1a0e2cbcc",
-    "abupy/MarketBu/ABuMinuteBarStore.py": "36fc113b82f9f0c7d93b26004ade0fda80b171df8b5584abc24d2d7588a3c4cb",
+    "abupy/MarketBu/ABuMinuteBarStore.py": "809ba6a066d5625b9a8a18039f541523476ab8b23fa25f30a4b2d3e9fef04a9e",
     "abupy/AlphaBu/ABuVCPPaperTrading.py": "0906d25f4c62c133d143ef50f831ce7cf5ddac203ed9bd662f7b650a5ff739ce",
     "abupy/AlphaBu/ABuAlphaForwardShadow.py": "3db990d00c11be0c448c44db13c8004e8d68b80a1317c9c14d3952b6cffe0692"
   },
@@ -38,6 +38,14 @@
       "abupy/AlphaBu/ABuTradeIntent.py": "2f08bf141714807e6521051c2020f7132449b0b1a37340e80d2a146b05dcde66"
     },
     "verification": "legacy strategy golden suite plus M4 adapter equality tests"
+  },
+  "m5_pinned_minute_manifest_extension": {
+    "updated_at": "2026-10-05T00:00:00+08:00",
+    "scope": "read-only pinned manifest and selected revision APIs; existing append and read semantics unchanged",
+    "previous_implementation_hashes": {
+      "abupy/MarketBu/ABuMinuteBarStore.py": "36fc113b82f9f0c7d93b26004ade0fda80b171df8b5584abc24d2d7588a3c4cb"
+    },
+    "verification": "legacy strategy golden suite plus M5 immutable selection and incremental-consumption tests"
   },
   "frozen_configs": {
     "configs/selection/intraday_execution_v1.json": "c53d482d587863a59fa52e55f7280bb3f375d0ce19859cfc21c9ccf66c7e0c2f",

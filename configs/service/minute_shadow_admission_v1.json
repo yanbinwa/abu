@@ -1,0 +1,11 @@
+{
+  "schema_version": "minute_shadow_admission_v1",
+  "first_eligible_session": 20261009,
+  "required_effective_sessions": 10,
+  "minimum_snapshots_per_session": 180,
+  "minimum_mean_symbol_coverage": 0.95,
+  "maximum_p99_latency_ms": 15000.0,
+  "maximum_gap_count_per_session": 0,
+  "require_no_unresolved_error_findings": true,
+  "admission_state_before_pass": "ACCEPT_DATA_ONLY"
+}

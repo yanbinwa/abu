@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,12 +19,19 @@ class ServiceRuntimeFreezeTest(unittest.TestCase):
                 Path(directory), commit="test-commit", source_root=ROOT)
             self.assertTrue(created)
             self.assertTrue((release / "abupy/ServiceBu/ABuServiceRuntime.py").is_file())
+            self.assertTrue((release / "abupy/MarketBu/ABuMinuteBarStore.py").is_file())
+            self.assertTrue((release / "abupy/MarketBu/ABuRealtimeMarket.py").is_file())
+            subprocess.run(
+                [sys.executable, "-B", "-c",
+                 "from abupy.ServiceBu import MinuteSnapshotBuilder"],
+                cwd=str(release), check=True)
             self.assertEqual(
                 "# Minimal frozen package for ServiceBu only.\n",
                 (release / "abupy/__init__.py").read_text(encoding="utf-8"))
             service = json.loads((release / "configs/service/service_v1.json").read_text(
                 encoding="utf-8"))
             self.assertTrue(service["daily_data_policy_path"].startswith(str(release)))
+            self.assertTrue(service["minute_shadow_config_path"].startswith(str(release)))
             repeated, repeated_manifest, created_again = freeze_runtime(
                 Path(directory), commit="test-commit", source_root=ROOT)
             self.assertFalse(created_again)

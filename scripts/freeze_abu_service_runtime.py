@@ -73,6 +73,14 @@ def freeze_runtime(output_root, commit=None, source_root=ROOT):
             if path.is_file() and "__pycache__" not in path.parts:
                 _copy_file(path, stage / "abupy" / "ServiceBu" /
                            path.relative_to(source_service))
+        market_package = stage / "abupy" / "MarketBu"
+        market_package.mkdir(parents=True)
+        (market_package / "__init__.py").write_text(
+            "# Minimal frozen package for minute market service modules.\n",
+            encoding="utf-8")
+        for name in ("ABuRealtimeMarket.py", "ABuMinuteBarStore.py"):
+            _copy_file(source_root / "abupy" / "MarketBu" / name,
+                       market_package / name)
         _copy_file(source_root / "scripts" / "run_abu_service.py",
                    stage / "scripts" / "run_abu_service.py")
         for path in (source_root / "configs" / "service").rglob("*"):
@@ -86,6 +94,8 @@ def freeze_runtime(output_root, commit=None, source_root=ROOT):
             release / "configs" / "service" / "daily_data_v1.json")
         service["daily_source_config_path"] = str(
             release / "configs" / "service" / "daily_sources_v1.json")
+        service["minute_shadow_config_path"] = str(
+            release / "configs" / "service" / "minute_shadow_v1.json")
         service_path.write_text(json.dumps(
             service, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8")

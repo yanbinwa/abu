@@ -15,11 +15,14 @@ from ..MarketBu.ABuMinuteBarStore import (
     MinuteBarStore, minute_events_from_frame,
 )
 from ..MarketBu.ABuRealtimeMarket import RealtimeMarketDataError
+from ..MarketBu.ABuRealtimeMarket import MinuteBarEvent
 from .ABuIntradayExecution import (
-    IntradayExecutionConfig, TERMINAL_STATES, instruction_from_order,
-    simulate_intraday_order,
+    IntradayExecutionConfig, IntradayOrderMachine, TERMINAL_STATES,
+    instruction_from_order, simulate_intraday_order,
 )
-from .ABuTradeIntent import ApprovedOrder
+from .ABuTradeIntent import (
+    ApprovedOrder, IntradayExecutionInstruction, OrderEvent,
+)
 
 
 SHADOW_STATE_VERSION = "intraday_shadow_state_v1"
@@ -80,6 +83,9 @@ def initialize_shadow_state(directory, orders, policy_id,
         "order_events": [],
         "outcomes": {},
         "polls": [],
+        "machine_states": {},
+        "last_consumed_minute_sequence": 0,
+        "consumed_minute_snapshots": [],
     }
     state["frozen_input_sha256"] = _sha256({
         "policy_id": policy_id, "config": state["config"],
@@ -123,6 +129,58 @@ def _session_end(instruction, config):
     return candidate + pd.Timedelta(minutes=1)
 
 
+def _minute_event(payload):
+    if payload is None:
+        return None
+    value = dict(payload)
+    value["quality_codes"] = tuple(value.get("quality_codes", ()))
+    return MinuteBarEvent(**value)
+
+
+def _serialize_machine(machine):
+    return {
+        "state": machine.state,
+        "reason_code": machine.reason_code,
+        "events": [asdict(item) for item in machine.events],
+        "seen": [list(item) for item in sorted(machine._seen)],
+        "candidate_after": (None if machine._candidate_after is None else
+                            machine._candidate_after.isoformat()),
+        "reference": (None if machine._reference is None else
+                      asdict(machine._reference)),
+        "decision_at": (None if machine._decision_at is None else
+                         machine._decision_at.isoformat()),
+        "candidate": (None if machine._candidate is None else
+                      asdict(machine._candidate)),
+        "fill_price": machine._fill_price,
+    }
+
+
+def _restore_machine(instruction, order, config, upper_limit_raw, payload):
+    if payload is None:
+        return IntradayOrderMachine(
+            instruction, order, config=config,
+            upper_limit_raw=upper_limit_raw)
+    machine = IntradayOrderMachine.__new__(IntradayOrderMachine)
+    machine.instruction = instruction
+    machine.order = order
+    machine.config = config
+    machine.upper_limit_raw = upper_limit_raw
+    machine.state = payload["state"]
+    machine.reason_code = payload["reason_code"]
+    machine.events = [OrderEvent(**item) for item in payload["events"]]
+    machine._seen = {tuple(item) for item in payload.get("seen", ())}
+    machine._candidate_after = (
+        None if payload.get("candidate_after") is None else
+        pd.Timestamp(payload["candidate_after"]))
+    machine._reference = _minute_event(payload.get("reference"))
+    machine._decision_at = (
+        None if payload.get("decision_at") is None else
+        pd.Timestamp(payload["decision_at"]))
+    machine._candidate = _minute_event(payload.get("candidate"))
+    machine._fill_price = float(payload.get("fill_price", 0.0))
+    return machine
+
+
 class IntradayShadowRunner(object):
     """Poll, archive, replay and persist hypothetical outcomes only."""
 
@@ -136,7 +194,7 @@ class IntradayShadowRunner(object):
             self.adapter.raw_archive = self.minute_store.append_raw_response
         self._now = now or (lambda: pd.Timestamp.now(tz="Asia/Shanghai"))
 
-    def poll_once(self, prefetched_health=None):
+    def poll_once(self, prefetched_health=None, snapshot_batch=None):
         """Advance decisions using either one shared fetch or local fetching.
 
         ``prefetched_health`` lets a session collector request every symbol once
@@ -144,6 +202,9 @@ class IntradayShadowRunner(object):
         the original standalone behaviour for callers that do not run a shared
         collector.
         """
+        if snapshot_batch is not None:
+            return self.consume_snapshot_batch(
+                snapshot_batch, prefetched_health=prefetched_health)
         state = read_shadow_state(self.state_directory)
         config = IntradayExecutionConfig(**state["config"])
         now = pd.Timestamp(self._now())
@@ -201,6 +262,63 @@ class IntradayShadowRunner(object):
             state["outcomes"][order.order_id] = asdict(outcome)
         state["polls"].append({
             "polled_at": now.isoformat(), "health": health_rows,
+            "outcome_sha256": _sha256(state["outcomes"]),
+        })
+        _atomic_json(self.state_directory / "state.json", state)
+        return state
+
+    def consume_snapshot_batch(self, snapshot_batch, prefetched_health=None):
+        """Advance persisted machines with only one new contiguous snapshot."""
+        state = read_shadow_state(self.state_directory)
+        last = int(state.get("last_consumed_minute_sequence", 0))
+        consumed = state.setdefault("consumed_minute_snapshots", [])
+        if int(snapshot_batch.sequence_no) <= last:
+            if snapshot_batch.snapshot_id in consumed:
+                return state
+            raise ValueError("minute snapshot sequence moved backwards")
+        if int(snapshot_batch.sequence_no) != last + 1:
+            raise ValueError("minute snapshot sequence gap")
+        expected_previous = None if not consumed else consumed[-1]
+        if snapshot_batch.previous_snapshot_id != expected_previous:
+            raise ValueError("minute snapshot predecessor mismatch")
+
+        config = IntradayExecutionConfig(**state["config"])
+        now = pd.Timestamp(snapshot_batch.decision_cutoff)
+        if now.tzinfo is None:
+            raise ValueError("snapshot cutoff must be timezone-aware")
+        now = now.tz_convert("Asia/Shanghai")
+        machine_states = state.setdefault("machine_states", {})
+        new_event_ids = {item["event_id"] for item in state["order_events"]}
+        health_rows = []
+        for frozen in state["instructions"]:
+            order = _order(frozen["order"])
+            health_rows.append((prefetched_health or {}).get(order.symbol, {
+                "symbol": order.symbol, "status": "SNAPSHOT_DATA_ONLY",
+                "health": None,
+            }))
+            if order.order_id in state["outcomes"] and \
+                    state["outcomes"][order.order_id]["state"] in TERMINAL_STATES:
+                continue
+            instruction = IntradayExecutionInstruction(**frozen["instruction"])
+            machine = _restore_machine(
+                instruction, order, config, frozen.get("upper_limit_raw"),
+                machine_states.get(order.order_id))
+            for bar in snapshot_batch.events_by_symbol.get(order.symbol, ()):
+                machine.on_bar(bar)
+            should_finalize = now >= _session_end(frozen["instruction"], config)
+            outcome = machine.finalize() if should_finalize else machine.outcome()
+            for item in outcome.events:
+                if item.event_id not in new_event_ids:
+                    state["order_events"].append(asdict(item))
+                    new_event_ids.add(item.event_id)
+            state["outcomes"][order.order_id] = asdict(outcome)
+            machine_states[order.order_id] = _serialize_machine(machine)
+        state["last_consumed_minute_sequence"] = int(snapshot_batch.sequence_no)
+        consumed.append(snapshot_batch.snapshot_id)
+        state["polls"].append({
+            "polled_at": now.isoformat(), "health": health_rows,
+            "snapshot_id": snapshot_batch.snapshot_id,
+            "snapshot_sequence": int(snapshot_batch.sequence_no),
             "outcome_sha256": _sha256(state["outcomes"]),
         })
         _atomic_json(self.state_directory / "state.json", state)

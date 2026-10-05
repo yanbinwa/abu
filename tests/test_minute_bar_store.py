@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from abupy.MarketBu.ABuMinuteBarStore import MinuteBarStore
+from abupy.MarketBu.ABuMinuteBarStore import MinuteBarStore, minute_event_id
 from abupy.MarketBu.ABuRealtimeMarket import MinuteBarEvent
 
 
@@ -61,6 +61,25 @@ class MinuteBarStoreTest(unittest.TestCase):
                 as_of="2026-10-09T09:31:11+08:00")
             self.assertEqual(10.1, early[0].close_raw)
             self.assertEqual(10.15, late[0].close_raw)
+
+    def test_pinned_manifest_selection_never_changes_after_late_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MinuteBarStore(directory)
+            first = store.append([event()])[0]
+            selected = store.select_from_manifest(
+                "sh600000", "20261009", "2026-10-09T09:31:05+08:00",
+                source="fixture", manifest_sha256=first["manifest_sha256"])
+            store.append([event(available="09:40:00", close=10.15)])
+            self.assertEqual(1, selected["selected_bars"][0]["revision"])
+            self.assertEqual(10.1, store.read_selected(selected)[0].close_raw)
+            latest = store.select_from_manifest(
+                "sh600000", "20261009", "2026-10-09T09:41:00+08:00",
+                source="fixture")
+            self.assertEqual(2, latest["selected_bars"][0]["revision"])
+            self.assertNotEqual(selected["selected_bar_set_sha256"],
+                                latest["selected_bar_set_sha256"])
+            self.assertEqual(minute_event_id(latest["events"][0]),
+                             latest["selected_bars"][0]["event_id"])
 
     def test_audit_accepts_amount_missing_but_reports_gap(self):
         with tempfile.TemporaryDirectory() as directory:

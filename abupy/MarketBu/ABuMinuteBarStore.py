@@ -51,6 +51,17 @@ def _business_key(event):
     return (event.symbol, int(event.interval_minutes), event.bar_end, event.source)
 
 
+def minute_business_bar_key(event):
+    """Provider-independent business key stored in cross-symbol snapshots."""
+    return "{}:{}:{}".format(
+        event.symbol, int(event.interval_minutes), event.bar_end)
+
+
+def minute_event_id(event):
+    """Stable identity for one immutable normalized revision."""
+    return "bar-{}".format(_sha256_text(_canonical_json(_event_payload(event)))[:32])
+
+
 def _partition_key(event):
     date = _as_shanghai_timestamp(event.bar_end).strftime("%Y%m%d")
     return date, event.source, int(event.interval_minutes), event.symbol
@@ -161,6 +172,121 @@ class MinuteBarStore(object):
                 if line:
                     records.append(_event_from_payload(json.loads(line)))
         return records
+
+    def partition_manifest(self, symbol, trade_date, interval_minutes=1,
+                           source=None, manifest_sha256=None):
+        """Return one verified immutable partition manifest and its path."""
+        date = str(trade_date).replace("-", "")
+        if manifest_sha256 is not None:
+            matches = list(self.root.glob(
+                "trading_date={}/provider=*/interval={}/symbol={}/manifests/{}.json".format(
+                    date, int(interval_minutes), symbol, manifest_sha256)))
+            if source is not None:
+                matches = [path for path in matches
+                           if path.parents[3].name == "provider={}".format(source)]
+            if len(matches) != 1:
+                raise ValueError("minute partition manifest is missing or ambiguous")
+            path = matches[0]
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            expected = payload.pop("manifest_sha256", None)
+            actual = _sha256_text(_canonical_json(payload))
+            if expected != manifest_sha256 or actual != manifest_sha256:
+                raise ValueError("minute manifest hash mismatch")
+            payload["manifest_sha256"] = expected
+            return payload, path
+
+        sources = [source] if source else self._sources(
+            symbol, date, interval_minutes)
+        if len(sources) != 1:
+            raise ValueError("exactly one provider partition must be selected")
+        partition = self._partition(
+            (date, sources[0], int(interval_minutes), symbol))
+        payload = self._current_manifest(partition)
+        if payload is None:
+            return None, None
+        path = partition / "manifests" / "{}.json".format(
+            payload["manifest_sha256"])
+        return payload, path
+
+    def select_from_manifest(self, symbol, trade_date, decision_cutoff,
+                             interval_minutes=1, source=None,
+                             manifest_sha256=None):
+        """Freeze latest visible revision per business Bar from one manifest."""
+        manifest, path = self.partition_manifest(
+            symbol, trade_date, interval_minutes, source=source,
+            manifest_sha256=manifest_sha256)
+        if manifest is None:
+            return None
+        partition = path.parents[1]
+        cutoff = _as_shanghai_timestamp(decision_cutoff)
+        candidates = [
+            item for item in self._records(partition, manifest)
+            if _as_shanghai_timestamp(item.available_at) <= cutoff]
+        latest = {}
+        for item in candidates:
+            key = minute_business_bar_key(item)
+            previous = latest.get(key)
+            if previous is None or item.revision > previous.revision:
+                latest[key] = item
+        selected_events = sorted(
+            latest.values(), key=lambda item: (
+                _as_shanghai_timestamp(item.bar_end), item.revision,
+                minute_event_id(item)))
+        selected_bars = [{
+            "business_bar_key": minute_business_bar_key(item),
+            "revision": int(item.revision),
+            "event_id": minute_event_id(item),
+            "available_at": item.available_at,
+        } for item in selected_events]
+        return {
+            "partition_manifest_path": str(path),
+            "partition_manifest_sha256": manifest["manifest_sha256"],
+            "selected_bar_set_sha256": _sha256_text(
+                _canonical_json(selected_bars)),
+            "selected_bars": selected_bars,
+            "events": tuple(selected_events),
+            "latest_available_at": (
+                max((item.available_at for item in selected_events), default=None)),
+        }
+
+    def read_selected(self, symbol_record):
+        """Resolve exactly the revisions named by a committed snapshot."""
+        digest = symbol_record.get("partition_manifest_sha256")
+        if not digest:
+            return []
+        matches = list(self.root.glob(
+            "trading_date=*/provider=*/interval=*/symbol=*/manifests/{}.json".format(
+                digest)))
+        if len(matches) != 1:
+            raise ValueError("selected minute manifest is missing or ambiguous")
+        path = matches[0]
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        expected = payload.pop("manifest_sha256", None)
+        if expected != digest or _sha256_text(_canonical_json(payload)) != digest:
+            raise ValueError("selected minute manifest hash mismatch")
+        payload["manifest_sha256"] = expected
+        by_id = {
+            minute_event_id(item): item
+            for item in self._records(path.parents[1], payload)
+        }
+        result = []
+        for selected in symbol_record.get("selected_bars", ()):
+            event = by_id.get(selected["event_id"])
+            if event is None or event.revision != int(selected["revision"]):
+                raise ValueError("selected minute event is absent from pinned manifest")
+            if minute_business_bar_key(event) != selected["business_bar_key"]:
+                raise ValueError("selected minute business key mismatch")
+            result.append(event)
+        actual = _sha256_text(_canonical_json([
+            {
+                "business_bar_key": minute_business_bar_key(item),
+                "revision": int(item.revision),
+                "event_id": minute_event_id(item),
+                "available_at": item.available_at,
+            } for item in result]))
+        if actual != symbol_record.get("selected_bar_set_sha256"):
+            raise ValueError("selected minute bar set hash mismatch")
+        return result
 
     def append(self, events, raw_reference=None):
         events = list(events)

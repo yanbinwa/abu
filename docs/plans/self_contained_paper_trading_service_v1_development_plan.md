@@ -204,7 +204,8 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M2 | 完成 | `docs/reviews/paper_service_v1_m2_review.md` |
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
 | M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
-| M5—M9 | 未开始 | — |
+| M5 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m5_software_review.md` |
+| M6—M9 | 未开始 | — |
 
 ## 6. M0：契约、schema 与黄金基线
 
@@ -425,19 +426,21 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 
 ### 11.2 任务
 
-- [ ] M5-T01 汇总持仓、待执行订单、候选、基准和哨兵证券为动态 watchlist。
-- [ ] M5-T02 固定分钟 stream 为 `market-minute:{trading_session}:{interval_minutes}`；
+- [x] M5-T01 汇总持仓、待执行订单、候选、基准和哨兵证券为动态 watchlist。
+- [x] M5-T02 固定分钟 stream 为 `market-minute:{trading_session}:{interval_minutes}`；
   为 watchlist 生成内容 ID、单调版本和变更原因，但不切换 stream。
-- [ ] M5-T03 实现批量、限流、超时和供应商语义兼容检查。
-- [ ] M5-T04 继续使用 `MinuteBarStore` 保存不可变证券分区和修订。
-- [ ] M5-T05 实现 `available_at <= decision_cutoff` 的 revision 选择政策。
-- [ ] M5-T06 生成 selected event ID 列表和 `selected_bar_set_sha256`。
-- [ ] M5-T07 构建跨证券 snapshot、交易日流连续 sequence 和 previous snapshot，确保
+- [x] M5-T03 实现批量、限流、超时 SLA 分类和供应商语义兼容检查。v1 不在线程内
+  强杀同步 AKShare 调用；底层请求返回后若超过 SLA 则失败关闭，并在自然运行中观察阻塞风险。
+- [x] M5-T04 继续使用 `MinuteBarStore` 保存不可变证券分区和修订。
+- [x] M5-T05 实现 `available_at <= decision_cutoff` 的 revision 选择政策。
+- [x] M5-T06 生成 selected event ID 列表和 `selected_bar_set_sha256`。
+- [x] M5-T07 构建跨证券 snapshot、交易日流连续 sequence 和 previous snapshot，确保
   watchlist 变化前后仍连续。
-- [ ] M5-T08 实现账户/执行器的增量快照消费 API。
-- [ ] M5-T09 为迟到修订生成审计事件，不重新驱动历史状态。
-- [ ] M5-T10 改造现有 shadow runner，禁止每轮读取全部数据并从头重算状态机。
-- [ ] M5-T11 输出覆盖率、延迟、revision、gap 和供应商切换指标。
+- [x] M5-T08 实现账户/执行器的增量快照消费 API。
+- [x] M5-T09 为迟到修订生成审计事件，不重新驱动历史状态。
+- [x] M5-T10 改造现有 shadow runner，服务路径只消费增量快照并持久化状态机；旧入口
+  继续保留用于冻结基线兼容。
+- [x] M5-T11 输出覆盖率、延迟、revision、gap 和供应商切换指标。
 
 ### 11.3 自测与故障注入
 

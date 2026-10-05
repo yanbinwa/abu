@@ -1,0 +1,23 @@
+{
+  "schema_version": "minute_shadow_job_v1",
+  "execution_mode": "DATA_ONLY",
+  "first_eligible_session": 20261009,
+  "minute_store_root": "/Users/wjy/abu/service/paper_v1/minute_store",
+  "trading_calendar_path": "/Users/wjy/abu/paper/alpha158_event_exit_only_daily/trading_calendar.json",
+  "collection_windows": [
+    {"start": "09:31:05", "end": "11:30:30"},
+    {"start": "13:01:05", "end": "15:01:30"}
+  ],
+  "sentinel_symbols": ["sh600519", "sz000001", "sz300750"],
+  "benchmark_symbols": ["sh510300"],
+  "legacy_state_paths": [
+    "/Users/wjy/abu/paper/vcp_residual_v2/state.json",
+    "/Users/wjy/abu/paper/vcp_intraday_execution_v1/state.json"
+  ],
+  "batch_size": 20,
+  "request_timeout_seconds": 15.0,
+  "provider_retries": 3,
+  "provider_retry_wait_seconds": 1.0,
+  "provider_requests_per_second": 2.0,
+  "provider_policy_version": "akshare-eastmoney-sina-v1"
+}

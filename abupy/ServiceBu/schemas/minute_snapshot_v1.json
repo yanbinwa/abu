@@ -8,6 +8,7 @@
     "schema_version", "snapshot_id", "stream_id", "sequence_no", "previous_snapshot_id",
     "trading_session", "interval_minutes", "watchlist_id", "watchlist_version",
     "decision_cutoff", "provider_policy_version", "bar_selection_policy_version",
+    "collection_started_at", "collection_completed_at", "created_at",
     "symbols", "missing_symbols", "stale_symbols", "quality_codes", "manifest_sha256"
   ],
   "properties": {
@@ -21,6 +22,9 @@
     "watchlist_id": {"type": "string", "minLength": 1},
     "watchlist_version": {"type": "integer", "minimum": 1},
     "decision_cutoff": {"type": "string", "minLength": 1},
+    "collection_started_at": {"type": "string", "minLength": 1},
+    "collection_completed_at": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "minLength": 1},
     "provider_policy_version": {"type": "string", "minLength": 1},
     "bar_selection_policy_version": {"const": "available_at_cutoff_latest_revision_v1"},
     "symbols": {
@@ -32,8 +36,12 @@
           "selected_bars"
         ],
         "properties": {
-          "partition_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-          "selected_bar_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "partition_manifest_sha256": {
+            "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"
+          },
+          "selected_bar_set_sha256": {
+            "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"
+          },
           "terminal_status": {
             "enum": [
               "AVAILABLE", "NO_DATA", "STALE", "PROVIDER_ERROR", "SCHEMA_ERROR",
@@ -74,6 +82,9 @@
       "watchlist_id": "watchlist-a",
       "watchlist_version": 1,
       "decision_cutoff": "2026-10-09T09:31:05+08:00",
+      "collection_started_at": "2026-10-09T09:31:00+08:00",
+      "collection_completed_at": "2026-10-09T09:31:04+08:00",
+      "created_at": "2026-10-09T09:31:04+08:00",
       "provider_policy_version": "provider-v1",
       "bar_selection_policy_version": "available_at_cutoff_latest_revision_v1",
       "symbols": {

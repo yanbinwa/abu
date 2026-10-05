@@ -35,7 +35,9 @@ class SnapshotCatalog(object):
         Draft202012Validator(schema).validate(document)
 
     def publish(self, snapshot_type, manifest, *, source_service,
-                event_type=None, fail_after_file=False):
+                event_type=None, fail_after_file=False,
+                partition_rows=(), selection_rows=(),
+                additional_events=(), audit_findings=()):
         snapshot_type = snapshot_type.upper()
         if snapshot_type not in self._TYPE_TO_SCHEMA:
             raise ValueError("unsupported snapshot type: {}".format(snapshot_type))
@@ -96,6 +98,23 @@ class SnapshotCatalog(object):
                  int(document["trading_session"]), document["decision_cutoff"],
                  str(path), file_sha256, document["created_at"], document["created_at"],
                  json.dumps(document.get("quality_codes", []), sort_keys=True)))
+            for item in partition_rows:
+                connection.execute(
+                    "INSERT INTO market_snapshot_partitions "
+                    "(snapshot_id, partition_key, partition_manifest_path, "
+                    "partition_manifest_sha256, terminal_status, latest_available_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (snapshot_id, item["partition_key"], item["manifest_path"],
+                     item["manifest_sha256"], item["terminal_status"],
+                     item.get("latest_available_at")))
+            for item in selection_rows:
+                connection.execute(
+                    "INSERT INTO minute_snapshot_selections "
+                    "(snapshot_id, symbol, business_bar_key, selected_event_id, "
+                    "selected_revision, available_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (snapshot_id, item["symbol"], item["business_bar_key"],
+                     item["event_id"], int(item["revision"]),
+                     item["available_at"]))
             event_payload = {
                 "snapshot_id": snapshot_id,
                 "manifest_sha256": file_sha256,
@@ -114,10 +133,29 @@ class SnapshotCatalog(object):
                 correlation_id="snapshot:{}".format(document["trading_session"]),
                 source_transaction_id="snapshot-tx-{}".format(uuid.uuid4().hex))
             event_row, unused_new = self.events.append(event, connection=connection)
+            for extra_event in additional_events:
+                self.events.append(extra_event, connection=connection)
+            for finding in audit_findings:
+                connection.execute(
+                    "INSERT INTO audit_findings "
+                    "(finding_id, severity, category, account_id, snapshot_id, "
+                    "event_id, detail_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (finding["finding_id"], finding["severity"], finding["category"],
+                     finding.get("account_id"), snapshot_id,
+                     finding.get("event_id"),
+                     json.dumps(finding.get("detail", {}), sort_keys=True),
+                     finding["created_at"]))
             snapshot_row = dict(connection.execute(
                 "SELECT * FROM market_snapshots WHERE snapshot_id=?", (snapshot_id,)
             ).fetchone())
             return snapshot_row, event_row, True
+
+    def manifest(self, snapshot_id, verify=True):
+        row = self.get(snapshot_id, verify=verify)
+        if row is None:
+            return None
+        return json.loads(Path(row["manifest_path"]).read_text(encoding="utf-8"))
 
     def get(self, snapshot_id, verify=True):
         row = self.store.connection.execute(
