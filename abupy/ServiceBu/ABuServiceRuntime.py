@@ -30,7 +30,8 @@ def _now():
 def _git_head(root):
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=str(root), text=True).strip()
+            ["git", "rev-parse", "HEAD"], cwd=str(root), text=True,
+            stderr=subprocess.DEVNULL).strip()
     except Exception:
         return "UNKNOWN"
 
@@ -49,6 +50,7 @@ class ServiceRuntime(object):
         self.store = None
         self.job_store = None
         self.scheduler = ProjectScheduler(self.config["timezone"])
+        self.active_schedule = {"registered": [], "deferred": []}
         self.heartbeat_path = Path(self.config["runtime_root"]) / "run" / "heartbeat.json"
 
     def _assert_safe_config(self):
@@ -81,6 +83,7 @@ class ServiceRuntime(object):
                 for job in self.jobs["jobs"] if job["job_id"] in supplied
             }
             schedule = self.scheduler.register(self.jobs["jobs"], wrapped)
+            self.active_schedule = schedule
             self.write_heartbeat("RUNNING", recovered_attempts=recovered,
                                  schedule=schedule)
             if start_scheduler:
@@ -142,6 +145,7 @@ class ServiceRuntime(object):
             "research_only": True,
             "broker_connected": False,
             "account_writes_enabled": False,
+            "schedule": self.active_schedule,
         }
         payload.update(extra)
         _atomic_json(self.heartbeat_path, payload)

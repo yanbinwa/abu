@@ -51,6 +51,7 @@ class ServiceRuntimeTest(unittest.TestCase):
             heartbeat = json.loads(service.heartbeat_path.read_text(encoding="utf-8"))
             self.assertFalse(heartbeat["broker_connected"])
             self.assertFalse(heartbeat["account_writes_enabled"])
+            self.assertEqual(["heartbeat"], heartbeat["schedule"]["deferred"])
             instance_id = service.instance_id
             service.stop("test")
             connection = __import__("sqlite3").connect(
@@ -82,6 +83,18 @@ class ServiceRuntimeTest(unittest.TestCase):
             self.assertEqual([], result["schedule"]["deferred"])
             service.stop("test")
             self.assertEqual([], called)
+
+    def test_running_heartbeat_preserves_registered_schedule(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, jobs = self._files(root)
+            service = ServiceRuntime(config, jobs)
+            service.start(handlers={"heartbeat": lambda: None})
+            service.write_heartbeat("RUNNING")
+            heartbeat = json.loads(service.heartbeat_path.read_text(encoding="utf-8"))
+            self.assertEqual(["heartbeat"], heartbeat["schedule"]["registered"])
+            self.assertEqual([], heartbeat["schedule"]["deferred"])
+            service.stop("test")
 
     def test_wrapped_job_persists_attempt_and_does_not_repeat_success(self):
         with tempfile.TemporaryDirectory() as directory:
