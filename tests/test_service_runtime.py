@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from abupy.ServiceBu.ABuServiceRuntime import ServiceRuntime, _git_head
+from abupy.ServiceBu.ABuPaperShadowAdmission import PaperShadowAdmissionGate
 
 
 class ServiceRuntimeTest(unittest.TestCase):
@@ -80,6 +81,33 @@ class ServiceRuntimeTest(unittest.TestCase):
             config, jobs = self._files(root, account_writes_enabled=True)
             with self.assertRaisesRegex(ValueError, "account writes"):
                 ServiceRuntime(config, jobs)
+
+    def test_accepted_certificate_allows_isolated_paper_shadow_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gate = root / "paper-shadow.json"
+            database = root / "state" / "operational.sqlite3"
+            snapshots = root / "snapshots"
+            (root / "runtime_manifest.json").write_text(json.dumps({
+                "source_commit": "test",
+            }), encoding="utf-8")
+            PaperShadowAdmissionGate.create(
+                gate, {"passed": True, "status": "MINUTE_DATA_ONLY_ACCEPTED",
+                       "observations": [{"trading_session": 20261009,
+                                         "passed": True}]},
+                database_path=database, snapshot_root=snapshots,
+                source_commit="test", created_at="2026-10-09T18:00:00+08:00")
+            config, jobs = self._files(
+                root, account_writes_enabled=True,
+                minute_execution_admission="MINUTE_DATA_ONLY_ACCEPTED",
+                execution_mode="TRANSACTIONAL_PAPER_SHADOW",
+                target_schema_version=4,
+                paper_shadow_activation_path=str(gate))
+            service = ServiceRuntime(config, jobs, repository_root=root)
+            service.start()
+            self.assertTrue(json.loads(
+                service.heartbeat_path.read_text())["account_writes_enabled"])
+            service.stop("test")
 
     def test_scheduler_registration_is_explicit(self):
         with tempfile.TemporaryDirectory() as directory:

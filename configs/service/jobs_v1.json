@@ -25,6 +25,20 @@
       "schedule": {"interval_seconds": 60, "trading_sessions_only": true}
     },
     {
+      "job_id": "minute.execute_paper_shadow",
+      "job_version": "v1",
+      "category": "ACCOUNT_MINUTE_SHADOW",
+      "critical": true,
+      "schedule": {"interval_seconds": 60, "trading_sessions_only": true}
+    },
+    {
+      "job_id": "notification.deliver",
+      "job_version": "v1",
+      "category": "NOTIFICATION",
+      "critical": false,
+      "schedule": {"interval_seconds": 30}
+    },
+    {
       "job_id": "daily.collect",
       "job_version": "v1",
       "category": "DAILY_DATA",

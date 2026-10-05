@@ -17,6 +17,7 @@ from .ABuJobStore import JobStore
 from .ABuOperationalStore import OperationalStore, _atomic_json
 from .ABuScheduler import ProjectScheduler
 from .ABuServiceLock import ServiceLock
+from .ABuPaperShadowAdmission import PaperShadowAdmissionGate
 
 
 def _canonical_hash(payload):
@@ -73,14 +74,26 @@ class ServiceRuntime(object):
         if self.config.get("broker_connected"):
             raise ValueError("v1 service cannot connect to a broker")
         if self.config.get("account_writes_enabled"):
-            raise ValueError("M1 cannot enable account writes")
-        if self.config.get("minute_execution_admission") != "ACCEPT_DATA_ONLY":
-            raise ValueError("M1 minute execution must remain data-only")
+            if (self.config.get("minute_execution_admission") !=
+                    "MINUTE_DATA_ONLY_ACCEPTED" or
+                    self.config.get("execution_mode") !=
+                    "TRANSACTIONAL_PAPER_SHADOW" or
+                    int(self.config.get("target_schema_version", 0)) < 4):
+                raise ValueError("paper account writes require accepted shadow mode")
+            PaperShadowAdmissionGate.verify(
+                self.config["paper_shadow_activation_path"],
+                database_path=self.config["database_path"],
+                snapshot_root=self.config["snapshot_root"],
+                source_commit=_git_head(self.repository_root))
+        elif self.config.get("minute_execution_admission") != "ACCEPT_DATA_ONLY":
+            raise ValueError("data-only runtime admission must remain ACCEPT_DATA_ONLY")
 
     def start(self, handlers=None, start_scheduler=False):
         self.lock.acquire()
         try:
-            self.store = OperationalStore(self.config["database_path"])
+            self.store = OperationalStore(
+                self.config["database_path"], target_schema_version=int(
+                    self.config.get("target_schema_version", 1)))
             self.job_store = JobStore(self.store)
             started_at = _now()
             recovered_instances = self.store.recover_stale_service_instances(started_at)
@@ -159,7 +172,8 @@ class ServiceRuntime(object):
             "python": platform.python_version(),
             "research_only": True,
             "broker_connected": False,
-            "account_writes_enabled": False,
+            "account_writes_enabled": bool(
+                self.config.get("account_writes_enabled")),
             "schedule": self.active_schedule,
         }
         payload.update(extra)

@@ -205,8 +205,10 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
 | M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
 | M5 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m5_software_review.md` |
-| M6 | T01—T06、T08—T11 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_intraday_broker_mock_review.md` |
-| M7—M9 | 未开始 | — |
+| M6 | Mock 软件完成；真实分钟消费入口已接入但受 M5 自然时间门禁保护 | `docs/reviews/paper_service_v1_m6_m7_full_chain_review.md` |
+| M7 | Mock 通知全链路完成；真实 Webhook 桥接已实现但未外发验收消息 | `docs/reviews/paper_service_v1_m6_m7_full_chain_review.md` |
+| M8 | 未开始 | — |
+| M9 | 激活证书和运行时门禁已实现；自然时间准入与正式账户切换未开始 | `docs/reviews/paper_service_v1_m6_m7_full_chain_review.md` |
 
 ## 6. M0：契约、schema 与黄金基线
 
@@ -489,6 +491,10 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
   可选发布为内容寻址 JSON，导出过程不写账户数据库事实。
 - [x] M6-T14 建立无账户写入的固定 snapshot 组合回放入口，确定性输出 D0/M1/M2 配对结果、
   终态和输入 snapshot 链哈希；序号或 predecessor gap 失败关闭。
+- [x] M6-T15 建立一键 Mock 交易日场景，覆盖订单注册、盘前阶段、M1 分钟成交、日结、
+  只读投影和通知 outbox。
+- [x] M6-T16 实现真实已提交分钟 snapshot 的单调消费作业，并以独立 shadow 账户、激活证书
+  和显式命令行开关保护账户写入。
 
 ### 12.3 故障注入
 
@@ -562,6 +568,8 @@ stream gap、涨停、停牌、容量限制、阶段提前到达、重复事件�
 - [x] M7-T09 建立 SQLite outbox 到企业微信群机器人 Webhook 的受控桥接；仅消费已提交分片，
   网络调用前先写 SENDING attempt，绝不先发网络消息再创建 outbox。
 - [x] M7-T10 Webhook 只从环境或本地 env 文件读取；数据库、远端引用和异常不保存或回显密钥。
+- [x] M7-T11 将通知 worker 接入项目调度入口；默认不注册，只有显式开关和合法本地 Webhook
+  配置同时存在时才启用。
 
 ### 13.3 自测与故障注入
 
