@@ -32,6 +32,8 @@ an offset and operational timestamps use `Asia/Shanghai`.
 7. The active data-only runtime continues to request schema v1. Account shadow work must explicitly
    request schema v2 after a verified backup; v2 adds durable cash/share receivables and sell-share
    reservations without changing v1 tables in place.
+8. Schema v3 adds the immutable account daily-close projection. It is a separate migration because
+   published migration files are never edited after release.
 
 ## Transaction boundaries
 

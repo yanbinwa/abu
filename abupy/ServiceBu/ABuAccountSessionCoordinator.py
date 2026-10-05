@@ -127,3 +127,12 @@ class AccountSessionCoordinator(object):
         return self._advance(
             account_id, event_id, expected_account_version, trading_session,
             "INTRADAY_BUYS_ENABLED", expected_phase_version, processed_at)
+
+    def complete_daily_close(
+            self, account_id, event_id, expected_account_version,
+            trading_session, expected_phase_version, processed_at,
+            apply_domain_changes):
+        return self._advance(
+            account_id, event_id, expected_account_version, trading_session,
+            "DAILY_CLOSE_COMPLETED", expected_phase_version, processed_at,
+            apply_domain_changes=apply_domain_changes)

@@ -42,6 +42,25 @@ class OperationalSchemaV2Test(unittest.TestCase):
                 "SELECT count(*) FROM schema_migrations").fetchone()[0])
             second.close()
 
+    def test_v3_adds_daily_close_projection_without_rewriting_v2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.sqlite3"
+            v2 = OperationalStore(path, target_schema_version=2)
+            v2_hash = v2.connection.execute(
+                "SELECT sha256 FROM schema_migrations WHERE version=2"
+            ).fetchone()[0]
+            v2.close()
+            v3 = OperationalStore(path, target_schema_version=3)
+            self.assertEqual(v2_hash, v3.connection.execute(
+                "SELECT sha256 FROM schema_migrations WHERE version=2"
+            ).fetchone()[0])
+            self.assertEqual(3, v3.connection.execute(
+                "SELECT max(version) FROM schema_migrations").fetchone()[0])
+            self.assertIsNotNone(v3.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='account_daily_closes'").fetchone())
+            v3.close()
+
 
 if __name__ == "__main__":
     unittest.main()

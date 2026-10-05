@@ -67,7 +67,10 @@ class AccountCommandQueue(object):
 
     def _lock_for(self, account_id):
         with self._guard:
-            return self._locks.setdefault(str(account_id), threading.Lock())
+            # Reentrant so a higher-level account workflow can retain the
+            # account serialization boundary across a rolled-back command and
+            # its separately committed operational failure evidence.
+            return self._locks.setdefault(str(account_id), threading.RLock())
 
     @contextmanager
     def serial(self, account_id):
