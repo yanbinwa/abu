@@ -12,6 +12,7 @@ from .ABuAccountSessionCoordinator import AccountSessionCoordinator
 from .ABuDomainEventStore import DomainEventStore, build_domain_event
 from .ABuMarketSnapshotCatalog import SnapshotCatalog
 from .ABuMinuteMarketHub import MinuteSnapshotBatch
+from .ABuNotificationPipeline import NotificationWorker, RecordingMockTransport
 from .ABuOperationalStore import OperationalStore
 from .ABuPreopenSnapshot import PreopenSnapshotBuilder
 from .ABuStrategyAccountStore import StrategyAccountStore
@@ -27,8 +28,9 @@ class MockPaperTradingScenario(object):
     NEXT_SESSION = 20261012
     NOW = "2026-10-09T09:20:00+08:00"
 
-    def __init__(self, root):
+    def __init__(self, root, deliver_notifications=True):
         self.root = Path(root)
+        self.deliver_notifications = bool(deliver_notifications)
 
     @staticmethod
     def _bar(clock, opening):
@@ -53,7 +55,7 @@ class MockPaperTradingScenario(object):
     def run(self):
         self.root.mkdir(parents=True, exist_ok=True)
         store = OperationalStore(
-            self.root / "operational.sqlite3", target_schema_version=3)
+            self.root / "operational.sqlite3", target_schema_version=4)
         registry = StrategyAccountStore(store)
         registry.register_strategy_instance(
             "mock-strategy", "mock_vcp", "1", self.NOW)
@@ -190,6 +192,12 @@ class MockPaperTradingScenario(object):
             "mock-account", close_event["event_id"],
             accounts.account("mock-account")["account_version"],
             self.SESSION, 4, marks, "2026-10-09T15:10:00+08:00")
+        transport = RecordingMockTransport()
+        delivery = []
+        if self.deliver_notifications:
+            delivery = NotificationWorker(
+                store, self.root / "notification-artifacts", transport).drain_once(
+                    "2026-10-09T15:12:00+08:00")
         projection = AccountProjectionExporter(
             store, self.root / "exports").export(
                 "mock-account", "2026-10-09T15:11:00+08:00")
@@ -200,6 +208,10 @@ class MockPaperTradingScenario(object):
                 "SELECT count(*) FROM fills").fetchone()[0],
             "notifications": store.connection.execute(
                 "SELECT count(*) FROM notification_outbox").fetchone()[0],
+            "notification_status": store.connection.execute(
+                "SELECT status FROM notification_outbox").fetchone()[0],
+            "delivered_parts": delivery,
+            "mock_messages": transport.messages,
             "daily_close": store.connection.execute(
                 "SELECT status FROM reconciliation_runs").fetchone()[0],
             "projection": projection,

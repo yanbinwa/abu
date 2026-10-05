@@ -28,7 +28,8 @@ class MockTransport(object):
 class NotificationPipelineTest(unittest.TestCase):
 
     def setup_scenario(self, directory):
-        result = MockPaperTradingScenario(Path(directory)).run()
+        result = MockPaperTradingScenario(
+            Path(directory), deliver_notifications=False).run()
         return result, OperationalStore(
             result["database_path"], target_schema_version=4)
 

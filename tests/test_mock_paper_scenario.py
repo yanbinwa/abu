@@ -12,6 +12,11 @@ class MockPaperTradingScenarioTest(unittest.TestCase):
             result = MockPaperTradingScenario(Path(directory)).run()
             self.assertEqual(1, result["fills"])
             self.assertEqual(1, result["notifications"])
+            self.assertEqual("SENT", result["notification_status"])
+            self.assertEqual({"TEXT", "CHART_IMAGE"}, {
+                item["part_kind"] for item in result["mock_messages"]})
+            self.assertTrue(all(Path(item["path"]).is_file()
+                                for item in result["mock_messages"]))
             self.assertEqual("PASSED", result["daily_close"])
             self.assertEqual(9, result["account_version"])
             self.assertTrue(Path(result["projection"]["path"]).is_file())

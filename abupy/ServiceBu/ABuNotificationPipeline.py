@@ -20,6 +20,22 @@ class PermanentDeliveryError(RuntimeError):
     pass
 
 
+class RecordingMockTransport(object):
+    """Deterministic no-network transport used by full-chain acceptance."""
+
+    def __init__(self):
+        self.messages = []
+
+    def send(self, part_kind, path, idempotency_key):
+        record = {
+            "part_kind": part_kind, "path": str(path),
+            "idempotency_key": idempotency_key,
+            "remote_reference": "mock://{}".format(idempotency_key),
+        }
+        self.messages.append(record)
+        return record["remote_reference"]
+
+
 class TradeNotificationRenderer(object):
 
     @staticmethod
