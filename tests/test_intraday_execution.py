@@ -181,6 +181,22 @@ class IntradayExecutionTest(unittest.TestCase):
         self.assertEqual(uninterrupted.outcome(), restored.outcome())
         self.assertEqual("FILLED", restored.state)
 
+    def test_exported_v2_state_is_self_contained_and_config_frozen(self):
+        order = approved()
+        config = IntradayExecutionConfig(slippage_bps=0)
+        instruction = instruction_from_order(order, 20250103, "M1", config)
+        machine = IntradayOrderMachine(
+            instruction, order, config=config, upper_limit_raw=11.0)
+        machine.on_bar(bar("09:35"))
+        state = machine.export_state()
+        restored = IntradayOrderMachine.restore_exported(state)
+        self.assertEqual(machine.outcome(), restored.outcome())
+        with self.assertRaisesRegex(ValueError, "config mismatch"):
+            IntradayOrderMachine.restore(
+                instruction, order, state,
+                config=IntradayExecutionConfig(slippage_bps=25),
+                upper_limit_raw=11.0)
+
     def test_machine_restore_rejects_corrupt_state(self):
         order = approved()
         instruction = instruction_from_order(order, 20250103, "M1")

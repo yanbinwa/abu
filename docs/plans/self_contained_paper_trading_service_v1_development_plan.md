@@ -205,7 +205,7 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 | M3 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m3_review.md` |
 | M4 | T01—T09 软件完成；T10 等待 M3 准入 | `docs/reviews/paper_service_v1_m4_software_review.md` |
 | M5 | 软件完成，等待自然时间门禁 | `docs/reviews/paper_service_v1_m5_software_review.md` |
-| M6 | T01—T05、T08—T11 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_phase_coordination_mock_review.md` |
+| M6 | T01—T06、T08—T11 离线软件完成；未接入账户运行服务 | `docs/reviews/paper_service_v1_m6_intraday_broker_mock_review.md` |
 | M7—M9 | 未开始 | — |
 
 ## 6. M0：契约、schema 与黄金基线
@@ -475,7 +475,7 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 - [x] M6-T03 实现账户事件事务模板和 `processed_events` 幂等检查。
 - [x] M6-T04 在同一事务写入账户变化、stream watermark、domain event 和 notification outbox。
 - [x] M6-T05 将 `IntradayOrderMachine` 改为持久化增量状态转换，不重算全部历史 Bar。
-- [ ] M6-T06 接入 `hybrid_intraday_entry_v1`，只允许分钟买入执行。
+- [x] M6-T06 接入 `hybrid_intraday_entry_v1`，只允许分钟买入执行。
 - [ ] M6-T07 保持既有日线卖出、核算和退出语义。
 - [x] M6-T08 实现 `account_sessions` 和交易日阶段状态机。
 - [x] M6-T09 构建单一 `preopen_snapshot`，固定公司行为、证券状态、价格限制、应收截止和

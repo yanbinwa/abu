@@ -277,7 +277,11 @@ class IntradayOrderMachine(object):
     def export_state(self):
         """Return the complete deterministic state needed for incremental resume."""
         return {
-            "schema_version": "intraday_order_machine_state_v1",
+            "schema_version": "intraday_order_machine_state_v2",
+            "instruction": asdict(self.instruction),
+            "order": asdict(self.order),
+            "config": asdict(self.config),
+            "upper_limit_raw": self.upper_limit_raw,
             "state": self.state,
             "reason_code": self.reason_code,
             "events": [asdict(item) for item in self.events],
@@ -299,10 +303,26 @@ class IntradayOrderMachine(object):
     def restore(cls, instruction, order, state, config=None,
                 upper_limit_raw=None):
         """Restore without replaying already consumed minute bars."""
-        if state.get("schema_version") != "intraday_order_machine_state_v1":
+        if state.get("schema_version") not in (
+                None, "intraday_order_machine_state_v1",
+                "intraday_order_machine_state_v2"):
             raise ValueError("intraday machine state version mismatch")
         if instruction.order_id != order.order_id:
             raise ValueError("instruction/order mismatch")
+        if state.get("schema_version") == "intraday_order_machine_state_v2":
+            if state.get("instruction") != asdict(instruction):
+                raise ValueError("persisted intraday instruction mismatch")
+            if state.get("order") != asdict(order):
+                raise ValueError("persisted approved order mismatch")
+            frozen_config = IntradayExecutionConfig(**state["config"])
+            if config is not None and config != frozen_config:
+                raise ValueError("persisted intraday config mismatch")
+            config = frozen_config
+            frozen_limit = state.get("upper_limit_raw")
+            if (upper_limit_raw is not None and
+                    upper_limit_raw != frozen_limit):
+                raise ValueError("persisted upper limit mismatch")
+            upper_limit_raw = frozen_limit
         valid_states = frozenset((
             "CREATED", "ACTIVE", "CANDIDATE", "FILLED", "CANCELLED",
             "EXPIRED"))
@@ -340,6 +360,18 @@ class IntradayOrderMachine(object):
         if machine.events and machine.events[-1].state != machine.state:
             raise ValueError("persisted machine state does not match last event")
         return machine
+
+    @classmethod
+    def restore_exported(cls, state):
+        """Restore a v2 state using only its frozen event payload."""
+        if state.get("schema_version") != "intraday_order_machine_state_v2":
+            raise ValueError("self-contained intraday state v2 is required")
+        instruction = IntradayExecutionInstruction(**state["instruction"])
+        order = ApprovedOrder(**state["order"])
+        config = IntradayExecutionConfig(**state["config"])
+        return cls.restore(
+            instruction, order, state, config=config,
+            upper_limit_raw=state.get("upper_limit_raw"))
 
 
 def simulate_intraday_order(instruction, order, bars, config=None,
