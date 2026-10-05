@@ -22,6 +22,7 @@ def _args(**overrides):
         "paper_account_id": None,
         "execution_policy_id": "M1",
         "enable_notifications": False,
+        "enable_dashboard": False,
         "wecom_env": Path("/does/not/exist"),
     }
     values.update(overrides)
@@ -72,6 +73,13 @@ class ServiceEntrypointTest(unittest.TestCase):
                 os.environ.pop("WECOM_WEBHOOK_URL", None)
             else:
                 os.environ["WECOM_WEBHOOK_URL"] = previous
+
+    def test_dashboard_handler_is_read_only_and_explicit(self):
+        handlers = build_handlers(
+            _Service({"database_path": "/tmp/read-only.sqlite3",
+                      "dashboard_root": "/tmp/dashboard"}),
+            _args(enable_dashboard=True))
+        self.assertEqual({"dashboard.build"}, set(handlers))
 
 
 if __name__ == "__main__":

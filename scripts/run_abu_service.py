@@ -98,6 +98,20 @@ def build_handlers(service, args):
                     "output_snapshot_ids": []}
 
         handlers["notification.deliver"] = run_notifications
+    if args.enable_dashboard:
+        from abupy.ServiceBu.ABuDashboard import (
+            DashboardQuery, StaticDashboardRenderer,
+        )
+
+        def build_dashboard():
+            with DashboardQuery(service.config["database_path"]) as query:
+                result = StaticDashboardRenderer().build(
+                    query, service.config["dashboard_root"])
+            result.update({"status": "DASHBOARD_BUILT",
+                           "output_snapshot_ids": []})
+            return result
+
+        handlers["dashboard.build"] = build_dashboard
     return handlers
 
 
@@ -114,6 +128,7 @@ def main(argv=None):
     parser.add_argument("--execution-policy-id", choices=("M1", "M2"), default="M1")
     parser.add_argument("--enable-notifications", action="store_true")
     parser.add_argument("--wecom-env", type=Path, default=ROOT / ".env.wecom")
+    parser.add_argument("--enable-dashboard", action="store_true")
     args = parser.parse_args(argv)
     service = runtime(args)
     if args.command == "check":

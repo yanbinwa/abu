@@ -39,6 +39,13 @@
       "schedule": {"interval_seconds": 30}
     },
     {
+      "job_id": "dashboard.build",
+      "job_version": "v1",
+      "category": "READ_ONLY_REPORTING",
+      "critical": false,
+      "schedule": {"interval_seconds": 300}
+    },
+    {
       "job_id": "daily.collect",
       "job_version": "v1",
       "category": "DAILY_DATA",

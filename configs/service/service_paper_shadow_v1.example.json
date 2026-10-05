@@ -12,6 +12,7 @@
   "daily_benchmark_pattern": "/Users/wjy/abu/data/csv/sh000300_*",
   "minute_shadow_config_path": "/Users/wjy/Documents/code/abu/configs/service/minute_shadow_v1.json",
   "notification_artifact_root": "/Users/wjy/abu/service/paper_v1/notifications",
+  "dashboard_root": "/Users/wjy/abu/service/paper_v1/dashboard",
   "paper_shadow_activation_path": "/Users/wjy/abu/service/paper_v1/run/paper_shadow_activation.json",
   "target_schema_version": 4,
   "execution_mode": "TRANSACTIONAL_PAPER_SHADOW",
