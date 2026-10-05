@@ -568,8 +568,9 @@ stream gap、涨停、停牌、容量限制、阶段提前到达、重复事件�
 - [x] M7-T06 达到自动尝试阈值后进入 `REQUIRES_ATTENTION`。
 - [x] M7-T07 实现人工 retry/abandon CLI，并记录操作者、原因和时间。
 - [x] M7-T08 企业微信消息显示短事件 ID，便于识别重复。
-- [x] M7-T09 建立 SQLite outbox 到企业微信群机器人 Webhook 的受控桥接；仅消费已提交分片，
-  网络调用前先写 SENDING attempt，绝不先发网络消息再创建 outbox。
+- [x] M7-T09 建立 SQLite outbox 到企业微信群机器人 Webhook 或企业微信智能机器人长连接 outbox
+  的受控桥接；仅消费已提交分片，网络调用或持久化排队前先写 SENDING attempt，绝不先发送再
+  创建事务 outbox。
 - [x] M7-T10 Webhook 只从环境或本地 env 文件读取；数据库、远端引用和异常不保存或回显密钥。
 - [x] M7-T11 将通知 worker 接入项目调度入口；默认不注册，只有显式开关和合法本地 Webhook
   配置同时存在时才启用。

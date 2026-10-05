@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseEnvFile, rememberMessage, reportExcerpt, routeText } from '../lib.mjs';
+import {
+  deliveryPlan, parseEnvFile, rememberMessage, reportExcerpt, routeText,
+} from '../lib.mjs';
 
 test('parses local environment without evaluating shell syntax', () => {
   assert.deepEqual(parseEnvFile('A=one\nB="two words"\n# comment\n'), { A: 'one', B: 'two words' });
@@ -36,4 +38,15 @@ test('deduplicates message ids', () => {
   const state = { seenMessageIds: [] };
   assert.equal(rememberMessage(state, 'm1'), true);
   assert.equal(rememberMessage(state, 'm1'), false);
+});
+
+test('accepts legacy text and content-addressed image jobs', () => {
+  assert.deepEqual(deliveryPlan({ content: 'legacy' }),
+    { kind: 'TEXT', content: 'legacy' });
+  const digest = 'a'.repeat(64);
+  assert.deepEqual(deliveryPlan({ deliveryKind: 'CHART_IMAGE',
+    assetSha256: digest, assetName: `${digest}.png` }),
+  { kind: 'CHART_IMAGE', assetSha256: digest, assetName: `${digest}.png` });
+  assert.throws(() => deliveryPlan({ deliveryKind: 'CHART_IMAGE',
+    assetSha256: digest, assetName: '../escape.png' }), /不支持/);
 });

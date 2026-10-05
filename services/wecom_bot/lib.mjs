@@ -34,6 +34,23 @@ export function atomicWriteJson(filePath, value) {
   fs.renameSync(temporary, filePath);
 }
 
+export function deliveryPlan(job) {
+  if (job?.deliveryKind === undefined && typeof job?.content === 'string') {
+    return { kind: 'TEXT', content: job.content };
+  }
+  if (job?.deliveryKind === 'TEXT' && typeof job?.content === 'string' && job.content.trim()) {
+    return { kind: 'TEXT', content: job.content };
+  }
+  if (job?.deliveryKind === 'CHART_IMAGE' &&
+      typeof job?.assetSha256 === 'string' &&
+      /^[a-f0-9]{64}$/.test(job.assetSha256) &&
+      job.assetName === `${job.assetSha256}.png`) {
+    return { kind: 'CHART_IMAGE', assetName: job.assetName,
+      assetSha256: job.assetSha256 };
+  }
+  throw new Error('不支持或不完整的推送任务');
+}
+
 export function loadState(filePath) {
   try {
     const value = JSON.parse(fs.readFileSync(filePath, 'utf8'));

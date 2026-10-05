@@ -193,7 +193,8 @@ class NotificationWorker(object):
             "AND a.artifact_kind=p.part_kind "
             "WHERE p.status IN ('RENDERED','RETRY_PENDING','RETRYABLE_FAILED') "
             "AND (p.next_attempt_at IS NULL OR p.next_attempt_at<=?) "
-            "ORDER BY p.notification_event_id,p.part_kind", (now,)).fetchall()
+            "ORDER BY p.notification_event_id,"
+            "CASE p.part_kind WHEN 'TEXT' THEN 0 ELSE 1 END", (now,)).fetchall()
 
     def drain_once(self, now):
         self.render_pending(now)

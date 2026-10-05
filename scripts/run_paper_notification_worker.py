@@ -14,7 +14,9 @@ if str(ROOT) not in sys.path:
 
 from abupy.ServiceBu import OperationalStore  # noqa: E402
 from abupy.ServiceBu.ABuNotificationPipeline import NotificationWorker  # noqa: E402
-from abupy.ServiceBu.ABuWeComTransport import WeComWebhookTransport  # noqa: E402
+from abupy.ServiceBu.ABuWeComLongConnectionTransport import (  # noqa: E402
+    wecom_transport_from_environment,
+)
 
 
 def _local_env(path):
@@ -35,11 +37,11 @@ def main():
     parser.add_argument("--recover-unknown", action="store_true")
     args = parser.parse_args()
     _local_env(args.env)
-    webhook = os.environ.get("WECOM_WEBHOOK_URL", "")
     worker_store = OperationalStore(args.database, target_schema_version=4)
     try:
         worker = NotificationWorker(
-            worker_store, args.artifacts, WeComWebhookTransport(webhook))
+            worker_store, args.artifacts,
+            wecom_transport_from_environment(os.environ))
         now = datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
         if args.recover_unknown:
             worker.recover_unknown(now)

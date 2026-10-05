@@ -80,8 +80,10 @@ def build_handlers(service, args):
     if args.enable_notifications:
         _local_env(args.wecom_env)
         from abupy.ServiceBu.ABuNotificationPipeline import NotificationWorker
-        from abupy.ServiceBu.ABuWeComTransport import WeComWebhookTransport
-        transport = WeComWebhookTransport(os.environ.get("WECOM_WEBHOOK_URL", ""))
+        from abupy.ServiceBu.ABuWeComLongConnectionTransport import (
+            wecom_transport_from_environment,
+        )
+        transport = wecom_transport_from_environment(os.environ)
         notification_worker = []
 
         def run_notifications():

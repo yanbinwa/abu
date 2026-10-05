@@ -2,12 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import AiBot, { generateReqId } from '@wecom/aibot-node-sdk';
 
 import {
-  atomicWriteJson, loadLocalEnv, loadState, rememberMessage, routeText,
+  atomicWriteJson, deliveryPlan, loadLocalEnv, loadState, rememberMessage, routeText,
 } from './lib.mjs';
 
 const serviceDir = path.dirname(fileURLToPath(import.meta.url));
@@ -26,8 +27,10 @@ const runtimeDir = path.resolve(rootDir, process.env.WECOM_RUNTIME_DIR || 'runti
 const statePath = path.join(runtimeDir, 'state.json');
 const statusPath = path.join(runtimeDir, 'status.json');
 const outboxDir = path.join(runtimeDir, 'outbox');
+const outboxAssetDir = path.join(runtimeDir, 'outbox-assets');
 const reportPath = path.resolve(rootDir, process.env.WECOM_REPORT_FILE || 'runtime/daily_strategy.md');
 fs.mkdirSync(outboxDir, { recursive: true });
+fs.mkdirSync(outboxAssetDir, { recursive: true });
 const state = loadState(statePath);
 let authenticated = false;
 let draining = false;
@@ -121,11 +124,23 @@ async function drainOutbox() {
         job = JSON.parse(fs.readFileSync(jobPath, 'utf8'));
         const target = job.target || state.ownerUserId;
         if (!target) throw new Error('尚未绑定接收用户');
-        if (!job.content || typeof job.content !== 'string') throw new Error('推送内容为空');
-        await wsClient.sendMessage(target, {
-          msgtype: 'markdown',
-          markdown: { content: job.content },
-        });
+        const plan = deliveryPlan(job);
+        if (plan.kind === 'TEXT') {
+          await wsClient.sendMessage(target, {
+            msgtype: 'markdown',
+            markdown: { content: plan.content },
+          });
+        } else {
+          const assetPath = path.join(outboxAssetDir, plan.assetName);
+          const imageBuffer = fs.readFileSync(assetPath);
+          const digest = createHash('sha256').update(imageBuffer).digest('hex');
+          if (digest !== plan.assetSha256) throw new Error('图片素材哈希不一致');
+          const uploaded = await wsClient.uploadMedia(imageBuffer, {
+            type: 'image', filename: plan.assetName,
+          });
+          if (!uploaded?.media_id) throw new Error('图片上传未返回 media_id');
+          await wsClient.sendMediaMessage(target, 'image', uploaded.media_id);
+        }
         fs.renameSync(jobPath, path.join(runtimeDir, `sent-${name}`));
         updateStatus({ lastPushAt: new Date().toISOString(), lastPushId: job.id || name });
       } catch (error) {
