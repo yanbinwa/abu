@@ -26,6 +26,8 @@ EXIT_REASON_LABELS = {
     "MARKET_REGIME": "市场状态退出",
     "FIXED_HOLD": "固定持有期退出",
     "PERSISTENT_RANK_EXIT": "持续排名退出",
+    "TAKE_PROFIT_1R": "+1R 分批止盈",
+    "TAKE_PROFIT_2R": "+2R 分批止盈",
 }
 
 EXIT_REASON_DETAILS = {
@@ -37,6 +39,22 @@ EXIT_REASON_DETAILS = {
     "FIXED_HOLD": "达到固定持有期限",
     "PERSISTENT_RANK_EXIT": (
         "持仓满10个交易日，且连续两次五日评估跌出前100名"),
+    "TAKE_PROFIT_1R": "收盘价达到初始入场价上方 1R，下一可交易日减仓至累计退出25%",
+    "TAKE_PROFIT_2R": "收盘价达到初始入场价上方 2R，下一可交易日减仓至累计退出50%",
+}
+
+POSITION_ACTION_LABELS = {
+    "OPEN": "基础买入",
+    "INCREASE": "加仓",
+    "REDUCE": "部分退出",
+    "CLOSE": "完全退出",
+}
+
+ADD_TRIGGER_LABELS = {
+    "STOP_LEVEL_AT_BREAKEVEN": "已有浮盈，且保护止损已抬至盈亏平衡线以上",
+    "ATR_PYRAMID": "价格较上次买入上涨达到 ATR 加仓阈值",
+    "REBREAKOUT": "价格再次突破加仓观察窗口高点",
+    "MARKET_TREND_GATE": "加仓条件满足，且市场趋势过滤通过",
 }
 
 
@@ -78,15 +96,151 @@ def _fees(row):
                for name in ("commission", "transfer_fee", "stamp_tax"))
 
 
-def build_position_add_markers(fills, allocations, dispositions):
-    """Return chart markers with one-to-one fill/disposition lineage."""
+def _clean_text(value):
+    """Return a stable text value without leaking pandas NaN into reports."""
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none") else text
+
+
+def _first_text(*values):
+    for value in values:
+        text = _clean_text(value)
+        if text:
+            return text
+    return ""
+
+
+def _entry_reason(strategy_id):
+    strategy_id = _clean_text(strategy_id)
+    if strategy_id.startswith("alpha158"):
+        return "Alpha158 Lite 横截面评分满足连续排名条件，组合风险审批通过"
+    if strategy_id.startswith("vcp"):
+        return "VCP 波动收缩突破与趋势条件满足，组合风险审批通过"
+    return "选股策略入场条件满足，组合风险审批通过"
+
+
+def build_position_add_markers(fills, allocations, dispositions, orders=None,
+                               evaluations=None, proposals=None,
+                               exit_reasons=None):
+    """Build auditable operation markers from fill-allocation lineage.
+
+    Optional order, policy and exit tables enrich the chart explanation.  The
+    allocation remains the unit of display, so marker count always reconciles
+    exactly with the position ledger.
+    """
     fill_map = {str(row.fill_id): row for row in fills.itertuples(index=False)
                 if hasattr(row, "fill_id")}
+    orders = orders if orders is not None else pd.DataFrame()
+    evaluations = evaluations if evaluations is not None else pd.DataFrame()
+    proposals = proposals if proposals is not None else pd.DataFrame()
+    exit_reasons = exit_reasons if exit_reasons is not None else pd.DataFrame()
+    order_map = {
+        _first_text(getattr(row, "logical_order_id", ""),
+                    getattr(row, "order_id", "")): row
+        for row in orders.itertuples(index=False)
+    }
+    evaluation_map = {
+        str(row.evaluation_id): row for row in evaluations.itertuples(index=False)
+        if _clean_text(getattr(row, "evaluation_id", ""))
+    }
+    proposal_map = {
+        str(row.proposal_id): row for row in proposals.itertuples(index=False)
+        if _clean_text(getattr(row, "proposal_id", ""))
+    }
+    disposition_groups = {
+        str(key): group for key, group in dispositions.groupby(
+            "fill_allocation_id", sort=False)
+    } if len(dispositions) else {}
+
+    def exit_reason_for(allocation, fill, order, group):
+        reasons = []
+        if group is not None and "exit_reason" in group:
+            reasons.extend(_clean_text(value) for value in group.exit_reason)
+        reasons.append(_clean_text(getattr(order, "reason", "")))
+        reasons.append(_clean_text(getattr(fill, "reason_code", "")))
+        reasons = [value for value in reasons if value]
+        if reasons:
+            return reasons[0]
+        if len(exit_reasons) and {"date", "symbol", "reason"}.issubset(
+                exit_reasons.columns):
+            candidates = exit_reasons[
+                exit_reasons.symbol.astype(str).eq(str(allocation.symbol)) &
+                (pd.to_numeric(exit_reasons.date, errors="coerce") <= int(fill.date))
+            ].sort_values("date")
+            if len(candidates):
+                nearest = candidates.iloc[-1]
+                # A sell order normally fills on the next session.  A small
+                # calendar tolerance also covers weekends and deferred exits.
+                if int(fill.date) - int(nearest.date) <= 10:
+                    return _clean_text(nearest.reason)
+        return ""
+
     rows = []
     for allocation in allocations.itertuples(index=False):
         fill = fill_map.get(str(allocation.physical_fill_id))
         if fill is None:
             raise ValueError("allocation references unknown physical fill")
+        logical_order_id = _clean_text(getattr(allocation, "logical_order_id", ""))
+        order = order_map.get(logical_order_id)
+        evaluation_id = _first_text(
+            getattr(fill, "policy_evaluation_id", ""),
+            getattr(order, "policy_evaluation_id", ""))
+        proposal_id = _first_text(
+            getattr(fill, "proposal_id", ""), getattr(order, "proposal_id", ""))
+        evaluation = evaluation_map.get(evaluation_id)
+        proposal = proposal_map.get(proposal_id)
+        marker_type = str(allocation.position_effect)
+        action_label = POSITION_ACTION_LABELS.get(marker_type, marker_type)
+        policy_id = _first_text(
+            getattr(fill, "source_policy_id", ""),
+            getattr(order, "source_policy_id", ""),
+            getattr(evaluation, "policy_id", ""))
+        strategy_id = _first_text(getattr(order, "strategy_id", ""))
+        reason_code = ""
+        reason_cn = ""
+        reason_detail = ""
+        realized_pnl = 0.0
+        group = disposition_groups.get(str(allocation.fill_allocation_id))
+        if marker_type == "OPEN":
+            reason_code = "BASE_ENTRY"
+            reason_cn = _entry_reason(strategy_id)
+            reason_detail = "选股策略：{}".format(strategy_id or "未记录")
+        elif marker_type == "INCREASE":
+            trigger = _clean_text(getattr(proposal, "trigger_code", ""))
+            reason_code = trigger or policy_id or "ADD_POLICY_TRIGGERED"
+            reason_cn = ADD_TRIGGER_LABELS.get(
+                trigger, "加仓插件 {} 的条件满足".format(policy_id or "未记录"))
+            signal_asof = getattr(proposal, "signal_asof", "")
+            stop = getattr(proposal, "current_stop_raw_snapshot", np.nan)
+            detail_parts = ["插件：{}".format(policy_id or "未记录")]
+            if _clean_text(signal_asof):
+                detail_parts.append("信号日：{}".format(int(signal_asof)))
+            if pd.notna(stop):
+                detail_parts.append("审批时保护止损：¥{:.3f}".format(float(stop)))
+            reason_detail = "；".join(detail_parts)
+        else:
+            reason_code = exit_reason_for(allocation, fill, order, group)
+            if reason_code:
+                reason_cn = EXIT_REASON_LABELS.get(reason_code, reason_code)
+                reason_detail = EXIT_REASON_DETAILS.get(reason_code, reason_cn)
+            else:
+                reason_code = "UNRECORDED_EXIT_REASON"
+                reason_cn = "策略退出（历史账本未记录具体触发原因）"
+                reason_detail = "该笔成交与持仓批次可核对，但旧结果未保存退出原因字段"
+            if group is not None and "realized_pnl_cash" in group:
+                realized_pnl = float(pd.to_numeric(
+                    group.realized_pnl_cash, errors="coerce").fillna(0).sum())
+        fees = sum(float(getattr(allocation, name, 0.0) or 0.0)
+                   for name in ("allocated_commission_cash",
+                                "allocated_transfer_fee_cash",
+                                "allocated_stamp_tax_cash"))
         rows.append({
             "trade_id": str(allocation.trade_id),
             "fill_allocation_id": str(allocation.fill_allocation_id),
@@ -94,9 +248,17 @@ def build_position_add_markers(fills, allocations, dispositions):
             "symbol": str(allocation.symbol), "date": int(fill.date),
             "price_raw": float(allocation.allocated_fill_price_raw),
             "quantity": int(allocation.allocated_quantity),
-            "marker_type": str(allocation.position_effect),
-            "reason": str(getattr(fill, "source_policy_id", "") or
-                          getattr(fill, "reason_code", "")),
+            "marker_type": marker_type, "action_label": action_label,
+            "reason_code": reason_code, "reason": reason_cn,
+            "reason_detail": reason_detail, "strategy_id": strategy_id,
+            "source_policy_id": policy_id,
+            "source_policy_version": _first_text(
+                getattr(fill, "source_policy_version", ""),
+                getattr(order, "source_policy_version", ""),
+                getattr(evaluation, "policy_version", "")),
+            "policy_evaluation_id": evaluation_id,
+            "proposal_id": proposal_id,
+            "fees_cash": fees, "realized_pnl_cash": realized_pnl,
         })
     disposition_ids = {str(row.fill_allocation_id)
                        for row in dispositions.itertuples(index=False)}
@@ -205,7 +367,8 @@ def build_round_trips(fills, intents, exit_reasons, position_events=None,
 
 
 def _configure_chinese_font():
-    candidates = ("PingFang SC", "Hiragino Sans GB", "Arial Unicode MS",
+    candidates = ("PingFang SC", "Hiragino Sans GB", "Heiti SC",
+                  "STHeiti", "Arial Unicode MS", "Arial Unicode",
                   "Noto Sans CJK SC", "Microsoft YaHei")
     installed = {item.name for item in font_manager.fontManager.ttflist}
     for name in candidates:

@@ -93,7 +93,8 @@ class PositionAddAnalyticsTest(unittest.TestCase):
         executor.process_open(2)
         sell = TradeIntent(
             "sell", "vcp", "1", 20250106, "sz000001", side="sell",
-            trade_id="t", position_effect="CLOSE")
+            trade_id="t", position_effect="CLOSE",
+            metadata={"exit_reason": "TRAILING_STOP"})
         executor.approve_order(sell, 200, 20250107)
         executor.process_open(3)
         markers = build_position_add_markers(
@@ -101,6 +102,13 @@ class PositionAddAnalyticsTest(unittest.TestCase):
             executor.lot_dispositions_frame())
         self.assertEqual(len(markers), len(executor.fill_allocations_frame()))
         self.assertEqual(set(markers.marker_type), {"OPEN", "INCREASE", "CLOSE"})
+        self.assertFalse(markers.reason.str.lower().eq("nan").any())
+        self.assertEqual(
+            markers.loc[markers.marker_type.eq("INCREASE"),
+                        "source_policy_id"].iloc[0], "turtle")
+        self.assertEqual(
+            markers.loc[markers.marker_type.eq("CLOSE"), "reason"].iloc[0],
+            "移动止损")
 
 
 if __name__ == "__main__":

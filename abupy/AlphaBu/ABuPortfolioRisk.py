@@ -459,6 +459,25 @@ class PortfolioRiskEngine(object):
         self.decisions.append(result)
         return result
 
+    def requested_quantity_for_risk_fraction(self, executor, intent, day,
+                                             risk_fraction):
+        """Return a board-lot quantity fixed from close-t information."""
+        risk_fraction = float(risk_fraction)
+        if not np.isfinite(risk_fraction) or risk_fraction <= 0 or \
+                risk_fraction > self.config.single_trade_risk_fraction:
+            raise ValueError("risk fraction exceeds configured sizing ceiling")
+        column = self.panel.symbol_index[intent.symbol]
+        raw = float(intent.signal_price_raw or self.panel.exec_close[day, column])
+        max_price = float(intent.metadata.get(
+            "max_buy_price_raw", raw * (1 + float(
+                intent.metadata.get("max_gap_fraction", 0.03)))))
+        stop = intent.initial_stop_raw
+        risk_per_share = max_price-float(stop) if stop is not None else 0.0
+        if not np.isfinite(risk_per_share) or risk_per_share <= 0:
+            return 0
+        equity = self._state(executor, day)[0]
+        return _lots(equity*risk_fraction/risk_per_share)
+
     def post_fill_review(self, executor, day):
         """Record breaches and create next-session full-exit intents.
 

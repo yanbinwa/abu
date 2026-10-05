@@ -116,6 +116,22 @@ class PortfolioRiskTest(unittest.TestCase):
         self.assertEqual(decision.decision, "rejected")
         self.assertEqual(decision.final_quantity, 0)
 
+    def test_requested_quantity_uses_explicit_fraction_and_ceiling(self):
+        panel = make_panel()
+        executor = PortfolioExecutor(panel, ExecutionConfig(initial_cash=100_000))
+        engine = PortfolioRiskEngine(
+            panel, liberal(single_trade_risk_fraction=0.005))
+        intent = make_intent(panel)
+        smaller = engine.requested_quantity_for_risk_fraction(
+            executor, intent, 125, 0.0025)
+        larger = engine.requested_quantity_for_risk_fraction(
+            executor, intent, 125, 0.00375)
+        self.assertGreater(larger, smaller)
+        self.assertEqual(smaller % 100, 0)
+        with self.assertRaises(ValueError):
+            engine.requested_quantity_for_risk_fraction(
+                executor, intent, 125, 0.006)
+
     def test_zero_pre_stress_capacity_does_not_mislabel_stress(self):
         panel = make_panel()
         executor = PortfolioExecutor(panel, ExecutionConfig(initial_cash=100_000))

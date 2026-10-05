@@ -1,0 +1,10 @@
+{
+  "policy_id": "alpha158_exit_overlay_v1",
+  "breakeven_floor_enabled": true,
+  "breakeven_activation_r": 1.0,
+  "breakeven_cost_buffer_bps": 60.0,
+  "rolling_stagnation_enabled": true,
+  "rolling_min_holding_sessions": 30,
+  "rolling_no_new_peak_sessions": 15,
+  "rolling_require_below_ma20": true
+}

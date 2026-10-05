@@ -1,0 +1,38 @@
+{
+  "strategy_version": "alpha158_industry_hierarchical_v1",
+  "base_strategy_version": "alpha158_price_only_no_rank_exit_v1",
+  "minimum_industry_members": 5,
+  "minimum_member_coverage": 0.8,
+  "minimum_industry_feature_count": 5,
+  "minimum_leader_feature_count": 4,
+  "bottom_industry_percentile": 0.2,
+  "top_industry_percentile": 0.7,
+  "leader_percentile": 0.7,
+  "leader_persistence_reviews": 2,
+  "maximum_positions_per_industry": 2,
+  "industry_features": [
+    "return_20d",
+    "return_60d",
+    "breadth_above_ma20",
+    "breadth_above_ma60",
+    "new_high_20d_ratio",
+    "amount_expansion"
+  ],
+  "leader_features": [
+    "relative_return_20d",
+    "relative_return_60d",
+    "ma120_slope_20d",
+    "distance_to_120d_high",
+    "liquidity_20d_median"
+  ],
+  "variants": {
+    "H0_a0": "frozen_a0_no_rank_exit",
+    "H1_bottom20_gate": "exclude_industry_percentile_below_0.2",
+    "H2_top30_industry_first": "industry_percentile_at_least_0.7_then_base_alpha_order",
+    "H3_persistent_leader": "H2_plus_leader_percentile_at_least_0.7_for_two_reviews",
+    "H4_industry_cap": "H3_plus_maximum_two_positions_per_industry"
+  },
+  "research_only": true,
+  "paper_admitted": false,
+  "live_admitted": false
+}

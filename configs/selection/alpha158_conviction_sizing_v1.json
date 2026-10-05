@@ -1,0 +1,9 @@
+{
+  "policy_id": "alpha158_conviction_sizing_v1",
+  "market_volatility_window": 60,
+  "minimum_market_volatility": 0.1416509953379142,
+  "maximum_industry_breadth_rank": -0.26127973,
+  "normal_risk_fraction": 0.0025,
+  "enhanced_risk_fraction": 0.003125,
+  "minimum_industry_history": 120
+}

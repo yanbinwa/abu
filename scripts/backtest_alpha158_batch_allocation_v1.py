@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Research fork of 0b3c997; the default runner is deliberately untouched.
 """Run the frozen low-frequency Alpha158-lite portfolio diagnostic."""
 from __future__ import annotations
 
@@ -99,8 +100,7 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                      position_add_policy=None,
                      position_add_execution_mode="executable",
                      initial_cash=1_000_000.0, review_overlay=None,
-                     scale_out_config=None, entry_sizing_policy=None,
-                     exit_engine_factory=None):
+                     scale_out_config=None, batch_allocator=None, batch_observer=None):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -128,9 +128,7 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             data_version="alpha158_position_add_v1",
             execution_mode=position_add_execution_mode)
     features = Alpha158LiteFeatureEngine(panel, strategy_config)
-    exits = (Alpha158LiteExitEngine(panel, strategy_config)
-             if exit_engine_factory is None
-             else exit_engine_factory(panel, strategy_config))
+    exits = Alpha158LiteExitEngine(panel, strategy_config)
     scale_out = None
     if scale_out_config is not None:
         from abupy.AlphaBu.ABuScaleOutPolicy import RMultipleScaleOutPolicy
@@ -186,26 +184,34 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                           if effect == "CLOSE")
             slots = max(
                 0, policy_config.target_positions-len(executor.positions)+exiting)
-            for row in pending_entries:
+            if batch_observer is not None:
+                batch_observer.prepare(
+                    pending_entries, slots, features, risk, executor,
+                    signal_day, day, held_or_ordered, policy_config.score_column)
+            if batch_allocator is not None:
+                prepared = batch_allocator.prepare(
+                    pending_entries, slots, features, risk, executor,
+                    signal_day, day, held_or_ordered, policy_config.score_column)
+            else:
+                prepared = [(row, None, None) for row in pending_entries]
+            for row, prepared_intent, requested_quantity in prepared:
                 if slots <= 0:
                     break
                 symbol = str(row["symbol"])
                 if symbol in held_or_ordered:
                     continue
-                intent = features.make_intent(
+                intent = prepared_intent or features.make_intent(
                     signal_day, int(row["column"]),
                     float(row[policy_config.score_column]))
                 if intent is None:
                     continue
-                sizing = (entry_sizing_policy.evaluate(signal_day, symbol)
-                          if entry_sizing_policy is not None else None)
-                requested_quantity = (
-                    risk.requested_quantity_for_risk_fraction(
-                        executor, intent, signal_day, sizing["risk_fraction"])
-                    if sizing is not None else None)
                 order, _, decision = risk.approve(
                     executor, intent, signal_day, day,
                     requested_quantity=requested_quantity)
+                if batch_allocator is not None and batch_allocator.mode == "equal_risk":
+                    actual_quantity = order.quantity if order is not None else 0
+                    if actual_quantity != requested_quantity:
+                        raise AssertionError("batch plan changed during final approval")
                 decisions.append(decision)
                 selection_rows.append({
                     "signal_asof": signal_date, "symbol": symbol,
@@ -213,11 +219,6 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                     "daily_rank": int(row["daily_rank"]),
                     "risk_decision": decision.decision,
                     "order_created": order is not None,
-                    "conviction_selected": (
-                        sizing["selected"] if sizing is not None else False),
-                    "requested_risk_fraction": (
-                        sizing["risk_fraction"] if sizing is not None else
-                        risk_config.single_trade_risk_fraction),
                 })
                 entry_intents[symbol] = intent
                 held_or_ordered.add(symbol)
@@ -384,12 +385,6 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "dynamic_stop_sync": bool(sync_dynamic_stops),
         "scale_out_policy_id": (
             scale_out.config.policy_id if scale_out is not None else "unified_exit"),
-        "entry_sizing_policy_id": (
-            entry_sizing_policy.config.policy_id
-            if entry_sizing_policy is not None else "uniform_risk_v1"),
-        "conviction_selected_evaluations": (
-            sum(item["selected"] for item in entry_sizing_policy.evaluations)
-            if entry_sizing_policy is not None else 0),
         **trades,
         **holding_session_statistics(fills, panel),
     }
@@ -409,101 +404,13 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "position_lots": list(executor.position_ledger.lots.values()),
         "lot_dispositions": list(executor.position_ledger.lot_dispositions),
         "logical_trades": list(executor.position_ledger.logical_trades.values()),
-        "position_events": list(executor.position_events),
         "risk_states_daily": risk_state_rows,
         "risk_positions_daily": risk_position_rows,
-        "entry_sizing_evaluations": (
-            list(entry_sizing_policy.evaluations)
-            if entry_sizing_policy is not None else []),
     }
+    if batch_allocator is not None:
+        audit["batch_plans"] = batch_allocator.plans
+        audit["order_diagnostics"] = batch_allocator.order_diagnostics
+    if batch_observer is not None:
+        audit["observed_plans"] = batch_observer.plans
+        audit["order_diagnostics"] = batch_observer.order_diagnostics
     return result, audit
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--predictions", type=Path, default=Path(
-        "/Users/wjy/abu/backtests/alpha158_lite_v1_hardened_20261003/"
-        "oos_predictions.csv.gz"))
-    parser.add_argument("--source-config", type=Path, default=
-                        ROOT/"configs/selection/alpha158_lite_v1.json")
-    parser.add_argument("--policy-config", type=Path, default=
-                        ROOT/"configs/selection/alpha158_lite_low_turnover_v3.json")
-    parser.add_argument("--risk-config", type=Path, default=
-                        ROOT/"configs/selection/risk_v1.json")
-    parser.add_argument("--signal-dir", type=Path,
-                        default=Path("/Users/wjy/abu/data/csv"))
-    parser.add_argument("--research-dir", type=Path,
-                        default=Path("/Users/wjy/abu/data/selection_research"))
-    parser.add_argument("--output-dir", type=Path, default=Path(
-        "/Users/wjy/abu/backtests/alpha158_lite_low_turnover_v3"))
-    parser.add_argument("--end-date", type=int, default=20260930)
-    parser.add_argument("--sync-dynamic-stops", action="store_true",
-                        help="publish executable trailing stops to risk sizing")
-    args = parser.parse_args()
-
-    source = load_alpha158_lite_config(args.source_config)
-    policy = load_alpha158_lite_low_turnover_config(args.policy_config)
-    if source.sha256 != policy.source_config_sha256:
-        raise ValueError("low-turnover source config hash mismatch")
-    risk = load_risk_config(args.risk_config)
-    registration_config = {
-        "source": asdict(source), "policy": asdict(policy),
-        "risk_config_sha256": risk.sha256,
-        "execution": {"slippage_bps": 25.0, "mode": "pit_corrected"},
-        "dynamic_stop_sync": bool(args.sync_dynamic_stops),
-        "parameter_search": False,
-    }
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    registry = args.output_dir/"trial_registry.jsonl"
-    trial_id = "alpha158-lite-low-turnover-v3-frozen-20261003"
-    hypothesis = (
-        "Five-session reviews, persistent entry and exit ranks, and at most "
-        "one rank replacement per review reduce annual buys below 120 while "
-        "preserving immediate event risk exits.")
-    registration = _register_once(
-        registry, trial_id, hypothesis, registration_config)
-
-    predictions = pd.read_csv(
-        args.predictions, usecols=["signal_asof", "symbol", "column",
-                                   policy.score_column], dtype={"symbol": str})
-    depth = max(policy.entry_rank_limit, policy.retention_rank_limit)
-    scores = rank_frame(predictions, policy.score_column, depth)
-    panel = SelectionPanelV2.from_research_data(
-        args.signal_dir, args.research_dir, start_date=20200101,
-        end_date=args.end_date)
-    result, audit = run_low_turnover(
-        panel, scores, source, policy, risk, args.end_date,
-        sync_dynamic_stops=args.sync_dynamic_stops)
-    _save_audit(args.output_dir/policy.strategy_version, audit)
-    annual_returns(audit["curve"]).to_csv(
-        args.output_dir/"year_returns.csv", index=False)
-    pd.DataFrame([result]).to_csv(args.output_dir/"results.csv", index=False)
-    report = {
-        "strategy_version": policy.strategy_version,
-        "registration_sha256": registration["record_sha256"],
-        "frequency_target_buys_per_year": 120,
-        "frequency_target_met": result["buys_per_year"] <= 120,
-        "portfolio_stage_decision": (
-            "RETAIN_FOR_FORWARD_VALIDATION"
-            if result["buys_per_year"] <= 120 and
-            result["return_pct"] > 0 and result["mean_r"] > 0 and
-            result["liquidation_3_limits_return_pct"] > 0
-            else "REJECT_AT_PORTFOLIO_STAGE"),
-        "result": result, "post_hoc_diagnostic": True,
-        "research_only": True,
-    }
-    (args.output_dir/"report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2)+"\n",
-        encoding="utf-8")
-    result_hash = hashlib.sha256(json.dumps(
-        report, sort_keys=True, separators=(",", ":")
-    ).encode()).hexdigest()
-    _register_once(
-        registry, trial_id+"-result-"+result_hash[:12],
-        "Observed diagnostic result for "+trial_id,
-        registration_config, status="OBSERVED", observed_metrics=report)
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-
-
-if __name__ == "__main__":
-    main()

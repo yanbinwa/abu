@@ -775,7 +775,12 @@ class PortfolioExecutor(object):
         return pd.DataFrame(self.curve)
 
     def fills_frame(self):
-        return pd.DataFrame([fill.__dict__ for fill in self.fills])
+        # Preserve the public schema even when a deliberately strict strategy
+        # produces no orders.  Portfolio diagnostics must be able to report a
+        # valid zero-trade path instead of failing on missing DataFrame columns.
+        return pd.DataFrame(
+            [fill.__dict__ for fill in self.fills],
+            columns=[field.name for field in fields(Fill)])
 
     def orders_frame(self):
         return pd.DataFrame([order.__dict__ for order in self.order_history])

@@ -53,6 +53,13 @@ def intent(side="buy", suffix="1", stop=8.0):
 
 class PortfolioExecutorTest(unittest.TestCase):
 
+    def test_empty_fills_frame_preserves_schema(self):
+        frame = make_executor().fills_frame()
+        self.assertTrue(frame.empty)
+        self.assertIn("side", frame.columns)
+        self.assertIn("status", frame.columns)
+        self.assertIn("position_effect", frame.columns)
+
     def test_frozen_execution_config_loads_strictly(self):
         path = Path(__file__).parents[1] / "configs/selection/execution_v2.json"
         config = load_execution_config(path)
