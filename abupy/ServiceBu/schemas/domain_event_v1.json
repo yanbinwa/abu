@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abupy.local/schemas/domain_event_v1.json",
+  "title": "ABu domain event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "event_type", "schema_version", "stream_id", "sequence_no",
+    "occurred_at", "available_at", "source_service", "payload_sha256", "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "schema_version": {"const": "domain_event_v1"},
+    "stream_id": {"type": "string", "minLength": 1},
+    "sequence_no": {"type": "integer", "minimum": 1},
+    "previous_event_id": {"type": ["string", "null"]},
+    "occurred_at": {"type": "string", "minLength": 1},
+    "available_at": {"type": "string", "minLength": 1},
+    "trading_session": {"type": ["integer", "null"]},
+    "source_service": {"type": "string", "minLength": 1},
+    "snapshot_id": {"type": ["string", "null"]},
+    "account_id": {"type": ["string", "null"]},
+    "actor_strategy_instance_id": {"type": ["string", "null"]},
+    "actor_activation_id": {"type": ["string", "null"]},
+    "affected_trade_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "affected_management_activation_ids": {
+      "type": "array", "items": {"type": "string"}, "uniqueItems": true
+    },
+    "causation_id": {"type": ["string", "null"]},
+    "correlation_id": {"type": ["string", "null"]},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "payload": {"type": "object"}
+  },
+  "examples": [
+    {
+      "event_id": "evt-minute-20261009-000001",
+      "event_type": "MinuteSnapshotCommitted",
+      "schema_version": "domain_event_v1",
+      "stream_id": "market-minute:20261009:1",
+      "sequence_no": 1,
+      "previous_event_id": null,
+      "occurred_at": "2026-10-09T09:31:05+08:00",
+      "available_at": "2026-10-09T09:31:05+08:00",
+      "trading_session": 20261009,
+      "source_service": "minute_market_hub",
+      "snapshot_id": "minute-20261009-000001",
+      "account_id": null,
+      "actor_strategy_instance_id": null,
+      "actor_activation_id": null,
+      "affected_trade_ids": [],
+      "affected_management_activation_ids": [],
+      "causation_id": null,
+      "correlation_id": "session-20261009",
+      "payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload": {"snapshot_id": "minute-20261009-000001"}
+    }
+  ]
+}

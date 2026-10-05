@@ -1,0 +1,38 @@
+{
+  "schema_version": "golden_baselines_v1",
+  "captured_at": "2026-10-05T00:00:00+08:00",
+  "repository_commit": "3030291a5057b36d7b9673e7ddd339df7437e572",
+  "python": "3.11.17",
+  "sqlite": "3.53.1",
+  "full_regression": {
+    "command": ".venv/bin/python -m unittest discover -s tests -p 'test_*.py'",
+    "tests_run": 392,
+    "status": "OK"
+  },
+  "strategy_execution_golden": {
+    "command": ".venv/bin/python -m unittest tests.test_vcp_strategy tests.test_vcp_paper_pipeline tests.test_alpha_forward_shadow tests.test_intraday_execution tests.test_intraday_shadow tests.test_portfolio_executor",
+    "tests_run": 53,
+    "status": "OK",
+    "files": {
+      "tests/test_vcp_strategy.py": "1787e7aa01ea905ad6560e2b9519cd14775537610e905312e24b3f3de228769e",
+      "tests/test_vcp_paper_pipeline.py": "a34705c7b9c646825495875e45b755f87273eec27604f81d433378be8b09b61e",
+      "tests/test_alpha_forward_shadow.py": "b26072e9fc0ac93c0234c6b9afb1805db72f2d3a8e380213868e07530e4986fd",
+      "tests/test_intraday_execution.py": "18d5949bf716bf70e0071c5f589ced01cdbbd8a7992fafa8703088dcddae72a9",
+      "tests/test_intraday_shadow.py": "464873f1330d790cf3d8d86c8930462e358997984291c3dc00feeb36311470c3",
+      "tests/test_portfolio_executor.py": "5d60b165e3a319077b34e89629e418c01d1e40c243bcd3fee3baad61a877eedb"
+    }
+  },
+  "implementation_files": {
+    "abupy/AlphaBu/ABuPortfolioExecutor.py": "2811dcd4224f6fbaf888ffec25c37f7bf928bf54edee31ebcb0c4e632f455f1c",
+    "abupy/AlphaBu/ABuTradeIntent.py": "2f08bf141714807e6521051c2020f7132449b0b1a37340e80d2a146b05dcde66",
+    "abupy/AlphaBu/ABuIntradayExecution.py": "3725969bf768bec06e8d20a7d2b73d6b7e792617efb205db8e6871b1a0e2cbcc",
+    "abupy/MarketBu/ABuMinuteBarStore.py": "36fc113b82f9f0c7d93b26004ade0fda80b171df8b5584abc24d2d7588a3c4cb",
+    "abupy/AlphaBu/ABuVCPPaperTrading.py": "0906d25f4c62c133d143ef50f831ce7cf5ddac203ed9bd662f7b650a5ff739ce",
+    "abupy/AlphaBu/ABuAlphaForwardShadow.py": "3db990d00c11be0c448c44db13c8004e8d68b80a1317c9c14d3952b6cffe0692"
+  },
+  "frozen_configs": {
+    "configs/selection/intraday_execution_v1.json": "c53d482d587863a59fa52e55f7280bb3f375d0ce19859cfc21c9ccf66c7e0c2f",
+    "configs/selection/minute_data_v1.json": "b2979020aadcc68505c7024fe4eaeaadd634ed9713c015cef2ee909dfdc28357",
+    "configs/selection/vcp_residual_v2.json": "0ff2e8b2b22440671387e8aebd2e1614905d7f1504ea54d5df8b4c004d7c5a99"
+  }
+}

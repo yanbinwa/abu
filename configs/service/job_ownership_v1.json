@@ -1,0 +1,98 @@
+{
+  "schema_version": "job_ownership_v1",
+  "captured_at": "2026-10-05T00:00:00+08:00",
+  "new_owner": "abu-paper-service-v1",
+  "entries": [
+    {
+      "job_id": "daily.snapshot_shadow",
+      "old_owner": null,
+      "categories": ["DAILY_DATA_SHADOW"],
+      "indivisible_until_refactored": false,
+      "writes_market_data": true,
+      "writes_account": false,
+      "writes_notification": false,
+      "state_root": "/Users/wjy/abu/service/paper_v1",
+      "status": "NEW_OWNER_SHADOW",
+      "cutover_session": null,
+      "rollback_boundary": "NOT_APPLICABLE"
+    },
+    {
+      "job_id": "legacy.vcp.daily_pipeline",
+      "old_owner": "codex-automation:vcp",
+      "categories": ["DAILY_DATA", "SHORTLINE_CLOSE", "PAPER_ACCOUNT", "NOTIFICATION"],
+      "indivisible_until_refactored": true,
+      "writes_market_data": true,
+      "writes_account": true,
+      "writes_notification": true,
+      "state_root": "/Users/wjy/abu/paper/vcp_residual_v2",
+      "status": "OLD_OWNER_ACTIVE",
+      "cutover_session": null,
+      "rollback_boundary": "FORWARD_ONLY_AFTER_NEW_WRITE"
+    },
+    {
+      "job_id": "legacy.alpha158.daily_service",
+      "old_owner": "codex-automation:alpha158",
+      "categories": ["DAILY_DATA", "PAPER_ACCOUNT", "NOTIFICATION"],
+      "indivisible_until_refactored": true,
+      "writes_market_data": true,
+      "writes_account": true,
+      "writes_notification": true,
+      "state_root": "/Users/wjy/abu/paper/alpha158_event_exit_only_daily",
+      "status": "OLD_OWNER_ACTIVE",
+      "cutover_session": null,
+      "rollback_boundary": "FORWARD_ONLY_AFTER_NEW_WRITE"
+    },
+    {
+      "job_id": "legacy.intraday.order_prepare",
+      "old_owner": "codex-automation:v1-3",
+      "categories": ["DAILY_DATA", "PAPER_ACCOUNT"],
+      "indivisible_until_refactored": true,
+      "writes_market_data": true,
+      "writes_account": true,
+      "writes_notification": false,
+      "state_root": "/Users/wjy/abu/paper/vcp_intraday_execution_v1",
+      "status": "OLD_OWNER_ACTIVE",
+      "cutover_session": null,
+      "rollback_boundary": "FORWARD_ONLY_AFTER_NEW_WRITE"
+    },
+    {
+      "job_id": "legacy.intraday.full_session_collection",
+      "old_owner": "codex-automation:v1",
+      "categories": ["MINUTE_DATA", "MINUTE_SHADOW"],
+      "indivisible_until_refactored": true,
+      "writes_market_data": true,
+      "writes_account": false,
+      "writes_notification": false,
+      "state_root": "/Users/wjy/abu/intraday_execution_v1/formal",
+      "status": "OLD_OWNER_ACTIVE",
+      "cutover_session": null,
+      "rollback_boundary": "NOT_APPLICABLE"
+    },
+    {
+      "job_id": "legacy.intraday.daily_audit",
+      "old_owner": "codex-automation:v1-2",
+      "categories": ["MINUTE_AUDIT", "ADMISSION"],
+      "indivisible_until_refactored": true,
+      "writes_market_data": false,
+      "writes_account": false,
+      "writes_notification": false,
+      "state_root": "/Users/wjy/abu/intraday_execution_v1/formal",
+      "status": "OLD_OWNER_ACTIVE",
+      "cutover_session": null,
+      "rollback_boundary": "NOT_APPLICABLE"
+    },
+    {
+      "job_id": "legacy.shortline.auction",
+      "old_owner": "codex-automation:shadow",
+      "categories": ["SHORTLINE_AUCTION"],
+      "indivisible_until_refactored": true,
+      "writes_market_data": true,
+      "writes_account": false,
+      "writes_notification": false,
+      "state_root": "/Users/wjy/abu/data/selection_research/shortline_forward",
+      "status": "OLD_OWNER_ACTIVE",
+      "cutover_session": null,
+      "rollback_boundary": "NOT_APPLICABLE"
+    }
+  ]
+}

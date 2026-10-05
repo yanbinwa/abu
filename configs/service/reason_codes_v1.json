@@ -1,0 +1,16 @@
+{
+  "schema_version": "reason_codes_v1",
+  "codes": {
+    "PREOPEN_INPUT_MISSING": "盘前必需输入缺失",
+    "ACCOUNT_SESSION_NOT_READY": "账户交易日阶段未允许分钟买入",
+    "STREAM_GAP_DETECTED": "输入流序号缺口",
+    "LATE_MARKET_REVISION_AUDIT_ONLY": "迟到行情修订仅用于审计",
+    "REQUIRED_FACTOR_MISSING": "策略必需因子缺失",
+    "SNAPSHOT_CORRUPT": "快照文件或哈希损坏",
+    "DISK_WARNING": "磁盘空间达到预警水位",
+    "DISK_CRITICAL": "磁盘空间达到停止写入水位",
+    "LEGACY_WRITER_DISABLED": "旧写入者已被切换标记禁用",
+    "NOTIFICATION_RESULT_UNKNOWN": "通知远端结果未知，将重试",
+    "MANUAL_NOTIFICATION_ABANDON": "通知由人工明确终止"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schema_version": "daily_source_adapter_v1",
+  "components": [
+    {
+      "component_id": "universe",
+      "source": "SelectionPanelV2.security_master",
+      "patterns": ["/Users/wjy/abu/data/selection_research/security_master.csv"]
+    },
+    {
+      "component_id": "calendar",
+      "source": "selection_research.manifest",
+      "patterns": ["/Users/wjy/abu/data/selection_research/manifest.json"]
+    },
+    {
+      "component_id": "security_master",
+      "source": "SelectionPanelV2.security_master",
+      "patterns": ["/Users/wjy/abu/data/selection_research/security_master.csv"]
+    },
+    {
+      "component_id": "raw_price",
+      "source": "SelectionPanelV2.raw_price",
+      "patterns": ["/Users/wjy/abu/data/selection_research/raw/*.csv"]
+    },
+    {
+      "component_id": "adjusted_price",
+      "source": "SelectionPanelV2.adjusted_signal_price",
+      "patterns": [
+        "/Users/wjy/abu/data/csv/*",
+        "/Users/wjy/abu/data/selection_research/signal_extra/*.csv"
+      ]
+    },
+    {
+      "component_id": "industry",
+      "source": "SelectionPanelV2.industry_history",
+      "patterns": ["/Users/wjy/abu/data/selection_research/industry_changes.csv"]
+    },
+    {
+      "component_id": "valuation",
+      "source": "normalized_valuation_pit_v1",
+      "patterns": ["/Users/wjy/abu/data/selection_research/valuation_normalized_v1/*"]
+    },
+    {
+      "component_id": "fundamental_pit",
+      "source": "normalized_fundamental_pit_v1",
+      "patterns": ["/Users/wjy/abu/data/selection_research/fundamental_normalized_v1/*"]
+    },
+    {
+      "component_id": "corporate_action",
+      "source": "SelectionPanelV2.corporate_actions",
+      "patterns": ["/Users/wjy/abu/data/selection_research/corporate_actions.csv"]
+    },
+    {
+      "component_id": "limit_reference",
+      "source": "derived_from_raw_close_and_corporate_actions",
+      "patterns": [
+        "/Users/wjy/abu/data/selection_research/corporate_actions.csv",
+        "/Users/wjy/abu/data/selection_research/raw/*.csv"
+      ]
+    }
+  ]
+}

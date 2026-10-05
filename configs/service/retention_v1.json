@@ -1,0 +1,28 @@
+{
+  "schema_version": "retention_v1",
+  "automatic_authoritative_deletion": false,
+  "disk": {
+    "warning_free_bytes": 21474836480,
+    "warning_free_percent": 15,
+    "critical_free_bytes": 5368709120,
+    "critical_free_percent": 5,
+    "trigger_when_any_threshold_is_breached": true
+  },
+  "classes": {
+    "PERMANENT_AUDIT": {
+      "automatic_delete": false,
+      "examples": ["accounts", "orders", "fills", "risk_decisions", "domain_events", "manifests"]
+    },
+    "ARCHIVE_AFTER_BACKUP": {
+      "automatic_delete": false,
+      "requires_verified_backup": true,
+      "examples": ["provider_raw_responses", "minute_partitions"]
+    },
+    "REBUILDABLE": {
+      "automatic_delete": true,
+      "examples": ["html", "png", "temporary_exports", "cache"]
+    }
+  },
+  "warning_actions": ["PAUSE_RENDERING", "PAUSE_HISTORICAL_BACKFILL", "ALERT"],
+  "critical_actions": ["STOP_SNAPSHOT_COMMIT", "STOP_ACCOUNT_MUTATION", "ALERT"]
+}

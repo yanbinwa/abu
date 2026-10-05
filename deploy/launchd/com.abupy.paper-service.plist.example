@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.abupy.paper-service</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/wjy/Documents/code/abu/.venv/bin/python</string>
+    <string>-B</string>
+    <string>/Users/wjy/Documents/code/abu/scripts/run_abu_service.py</string>
+    <string>run</string>
+    <string>--enable-daily-shadow</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/wjy/Documents/code/abu</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/wjy/abu/service/paper_v1/logs/service.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/wjy/abu/service/paper_v1/logs/service.stderr.log</string>
+</dict>
+</plist>

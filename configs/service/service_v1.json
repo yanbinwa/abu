@@ -1,0 +1,18 @@
+{
+  "schema_version": "service_config_v1",
+  "service_id": "abu-paper-service-v1",
+  "timezone": "Asia/Shanghai",
+  "runtime_root": "/Users/wjy/abu/service/paper_v1",
+  "database_path": "/Users/wjy/abu/service/paper_v1/state/operational.sqlite3",
+  "lock_path": "/Users/wjy/abu/service/paper_v1/run/service.lock",
+  "snapshot_root": "/Users/wjy/abu/service/paper_v1/snapshots",
+  "backup_root": "/Users/wjy/abu/service/paper_v1/backups",
+  "daily_data_policy_path": "/Users/wjy/Documents/code/abu/configs/service/daily_data_v1.json",
+  "daily_source_config_path": "/Users/wjy/Documents/code/abu/configs/service/daily_sources_v1.json",
+  "daily_benchmark_pattern": "/Users/wjy/abu/data/csv/sh000300_*",
+  "busy_timeout_ms": 5000,
+  "research_only": true,
+  "broker_connected": false,
+  "account_writes_enabled": false,
+  "minute_execution_admission": "ACCEPT_DATA_ONLY"
+}

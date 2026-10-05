@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abupy.local/schemas/preopen_snapshot_v1.json",
+  "title": "ABu preopen snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "snapshot_id", "trading_session", "decision_cutoff",
+    "security_master_version", "corporate_action_version", "limit_reference_version",
+    "receivables_cutoff", "pending_order_snapshot_id", "required_inputs", "missing_inputs",
+    "quality_codes", "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "preopen_snapshot_v1"},
+    "snapshot_id": {"type": "string"},
+    "trading_session": {"type": "integer"},
+    "decision_cutoff": {"type": "string"},
+    "security_master_version": {"type": "string"},
+    "corporate_action_version": {"type": "string"},
+    "limit_reference_version": {"type": "string"},
+    "receivables_cutoff": {"type": "string"},
+    "pending_order_snapshot_id": {"type": "string"},
+    "required_inputs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "missing_inputs": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "quality_codes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "examples": [
+    {
+      "schema_version": "preopen_snapshot_v1",
+      "snapshot_id": "preopen-20261009",
+      "trading_session": 20261009,
+      "decision_cutoff": "2026-10-09T09:20:00+08:00",
+      "security_master_version": "security-v1",
+      "corporate_action_version": "actions-v1",
+      "limit_reference_version": "limits-v1",
+      "receivables_cutoff": "2026-10-09T09:20:00+08:00",
+      "pending_order_snapshot_id": "orders-20261009",
+      "required_inputs": ["security_master", "corporate_actions", "limit_references", "receivables"],
+      "missing_inputs": [],
+      "quality_codes": [],
+      "manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ]
+}

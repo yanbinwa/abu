@@ -1,0 +1,12 @@
+{
+  "schema_version": "numeric_policy_v1",
+  "currency": "CNY",
+  "money_storage": "INTEGER_MICRO_YUAN",
+  "money_scale": 1000000,
+  "price_storage": "INTEGER_MICRO_YUAN",
+  "price_scale": 1000000,
+  "quantity_storage": "INTEGER_SHARE",
+  "ratio_storage": "INTEGER_PPM",
+  "ratio_scale": 1000000,
+  "rounding": "ROUND_HALF_UP_AT_ACCOUNT_BOUNDARY"
+}

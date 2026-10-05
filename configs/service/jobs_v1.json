@@ -1,0 +1,56 @@
+{
+  "schema_version": "job_config_v1",
+  "timezone": "Asia/Shanghai",
+  "daily_ready_deadline": "19:00:00",
+  "jobs": [
+    {
+      "job_id": "calendar.preflight",
+      "job_version": "v1",
+      "category": "PREOPEN",
+      "critical": true,
+      "schedule": {"hour": 8, "minute": 40}
+    },
+    {
+      "job_id": "preopen.snapshot",
+      "job_version": "v1",
+      "category": "PREOPEN",
+      "critical": true,
+      "schedule": {"hour": 9, "minute": 20}
+    },
+    {
+      "job_id": "minute.collect",
+      "job_version": "v1",
+      "category": "MINUTE_DATA",
+      "critical": true,
+      "schedule": {"interval_seconds": 60, "trading_sessions_only": true}
+    },
+    {
+      "job_id": "daily.collect",
+      "job_version": "v1",
+      "category": "DAILY_DATA",
+      "critical": true,
+      "schedule": {"hour": 18, "minute": 0}
+    },
+    {
+      "job_id": "daily.strategy_shadow",
+      "job_version": "v1",
+      "category": "STRATEGY_SHADOW",
+      "critical": true,
+      "depends_on": ["daily.snapshot.committed"]
+    },
+    {
+      "job_id": "daily.snapshot_shadow",
+      "job_version": "v1",
+      "category": "DAILY_DATA_SHADOW",
+      "critical": true,
+      "schedule": {"hour": 18, "minute": "45,50,55"}
+    },
+    {
+      "job_id": "daily.reconcile",
+      "job_version": "v1",
+      "category": "RECONCILIATION",
+      "critical": true,
+      "depends_on": ["daily.strategy_shadow"]
+    }
+  ]
+}

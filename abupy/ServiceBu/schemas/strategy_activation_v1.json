@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abupy.local/schemas/strategy_activation_v1.json",
+  "title": "ABu strategy activation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "activation_id", "strategy_instance_id", "account_id",
+    "strategy_id", "strategy_version", "config_sha256", "effective_from_session",
+    "change_reason", "approved_at", "open_trade_management"
+  ],
+  "properties": {
+    "schema_version": {"const": "strategy_activation_v1"},
+    "activation_id": {"type": "string"},
+    "strategy_instance_id": {"type": "string"},
+    "account_id": {"type": "string"},
+    "strategy_id": {"type": "string"},
+    "strategy_version": {"type": "string"},
+    "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "effective_from_session": {"type": "integer"},
+    "effective_until_session": {"type": ["integer", "null"]},
+    "previous_activation_id": {"type": ["string", "null"]},
+    "change_reason": {"type": "string"},
+    "approved_at": {"type": "string"},
+    "open_trade_management": {"enum": ["KEEP_EXISTING", "EXPLICIT_TAKEOVER_REQUIRED"]}
+  },
+  "examples": [
+    {
+      "schema_version": "strategy_activation_v1",
+      "activation_id": "activation-vcp-001",
+      "strategy_instance_id": "vcp-control",
+      "account_id": "paper-vcp-control",
+      "strategy_id": "vcp",
+      "strategy_version": "vcp_residual_v2",
+      "config_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "effective_from_session": 20261009,
+      "effective_until_session": null,
+      "previous_activation_id": null,
+      "change_reason": "INITIAL_SHADOW_ACTIVATION",
+      "approved_at": "2026-10-08T18:00:00+08:00",
+      "open_trade_management": "KEEP_EXISTING"
+    }
+  ]
+}

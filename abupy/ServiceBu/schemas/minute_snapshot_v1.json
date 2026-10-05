@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abupy.local/schemas/minute_snapshot_v1.json",
+  "title": "ABu minute snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "snapshot_id", "stream_id", "sequence_no", "previous_snapshot_id",
+    "trading_session", "interval_minutes", "watchlist_id", "watchlist_version",
+    "decision_cutoff", "provider_policy_version", "bar_selection_policy_version",
+    "symbols", "missing_symbols", "stale_symbols", "quality_codes", "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "minute_snapshot_v1"},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "stream_id": {"type": "string", "pattern": "^market-minute:[0-9]{8}:[0-9]+$"},
+    "sequence_no": {"type": "integer", "minimum": 1},
+    "previous_snapshot_id": {"type": ["string", "null"]},
+    "trading_session": {"type": "integer"},
+    "interval_minutes": {"type": "integer", "minimum": 1},
+    "watchlist_id": {"type": "string", "minLength": 1},
+    "watchlist_version": {"type": "integer", "minimum": 1},
+    "decision_cutoff": {"type": "string", "minLength": 1},
+    "provider_policy_version": {"type": "string", "minLength": 1},
+    "bar_selection_policy_version": {"const": "available_at_cutoff_latest_revision_v1"},
+    "symbols": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "partition_manifest_sha256", "selected_bar_set_sha256", "terminal_status",
+          "selected_bars"
+        ],
+        "properties": {
+          "partition_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "selected_bar_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "terminal_status": {
+            "enum": [
+              "AVAILABLE", "NO_DATA", "STALE", "PROVIDER_ERROR", "SCHEMA_ERROR",
+              "NOT_TRADING", "SUSPENSION_UNKNOWN"
+            ]
+          },
+          "latest_available_at": {"type": ["string", "null"]},
+          "selected_bars": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["business_bar_key", "revision", "event_id", "available_at"],
+              "properties": {
+                "business_bar_key": {"type": "string"},
+                "revision": {"type": "integer", "minimum": 1},
+                "event_id": {"type": "string"},
+                "available_at": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "missing_symbols": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "stale_symbols": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "quality_codes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "examples": [
+    {
+      "schema_version": "minute_snapshot_v1",
+      "snapshot_id": "minute-20261009-000001",
+      "stream_id": "market-minute:20261009:1",
+      "sequence_no": 1,
+      "previous_snapshot_id": null,
+      "trading_session": 20261009,
+      "interval_minutes": 1,
+      "watchlist_id": "watchlist-a",
+      "watchlist_version": 1,
+      "decision_cutoff": "2026-10-09T09:31:05+08:00",
+      "provider_policy_version": "provider-v1",
+      "bar_selection_policy_version": "available_at_cutoff_latest_revision_v1",
+      "symbols": {
+        "sh600000": {
+          "partition_manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "selected_bar_set_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "terminal_status": "AVAILABLE",
+          "latest_available_at": "2026-10-09T09:31:03+08:00",
+          "selected_bars": [
+            {
+              "business_bar_key": "sh600000:1:2026-10-09T09:31:00+08:00",
+              "revision": 1,
+              "event_id": "bar-sh600000-0931-r1",
+              "available_at": "2026-10-09T09:31:03+08:00"
+            }
+          ]
+        }
+      },
+      "missing_symbols": [],
+      "stale_symbols": [],
+      "quality_codes": [],
+      "manifest_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ]
+}

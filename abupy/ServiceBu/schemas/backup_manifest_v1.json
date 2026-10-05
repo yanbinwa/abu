@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abupy.local/schemas/backup_manifest_v1.json",
+  "title": "ABu backup manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "backup_id", "database_backup_sha256", "database_schema_version",
+    "immutable_files", "created_at", "source_service_instance_id"
+  ],
+  "properties": {
+    "schema_version": {"const": "backup_manifest_v1"},
+    "backup_id": {"type": "string"},
+    "database_backup_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "database_schema_version": {"type": "integer", "minimum": 1},
+    "immutable_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "retention_class"],
+        "properties": {
+          "path": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "retention_class": {
+            "enum": ["PERMANENT_AUDIT", "ARCHIVE_AFTER_BACKUP", "REBUILDABLE"]
+          }
+        }
+      }
+    },
+    "created_at": {"type": "string"},
+    "source_service_instance_id": {"type": "string"}
+  },
+  "examples": [
+    {
+      "schema_version": "backup_manifest_v1",
+      "backup_id": "backup-20261009",
+      "database_backup_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "database_schema_version": 1,
+      "immutable_files": [
+        {
+          "path": "snapshots/daily-20261009.json",
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "retention_class": "PERMANENT_AUDIT"
+        }
+      ],
+      "created_at": "2026-10-09T20:00:00+08:00",
+      "source_service_instance_id": "service-local-001"
+    }
+  ]
+}

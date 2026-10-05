@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abupy.local/schemas/notification_v1.json",
+  "title": "ABu notification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "notification_event_id", "account_id", "source_event_id",
+    "parts", "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "notification_v1"},
+    "notification_event_id": {"type": "string"},
+    "account_id": {"type": "string"},
+    "source_event_id": {"type": "string"},
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["part_kind", "status", "attempt_count"],
+        "properties": {
+          "part_kind": {"enum": ["TEXT", "CHART_IMAGE"]},
+          "status": {
+            "enum": [
+              "PENDING", "RENDERED", "RETRY_PENDING", "SENDING", "SENT", "UNKNOWN",
+              "RETRYABLE_FAILED", "REQUIRES_ATTENTION", "ABANDONED_BY_OPERATOR"
+            ]
+          },
+          "attempt_count": {"type": "integer", "minimum": 0},
+          "next_attempt_at": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "created_at": {"type": "string"}
+  },
+  "examples": [
+    {
+      "schema_version": "notification_v1",
+      "notification_event_id": "notification-fill-001",
+      "account_id": "paper-vcp-control",
+      "source_event_id": "fill-001",
+      "parts": [
+        {"part_kind": "TEXT", "status": "PENDING", "attempt_count": 0, "next_attempt_at": null},
+        {"part_kind": "CHART_IMAGE", "status": "PENDING", "attempt_count": 0, "next_attempt_at": null}
+      ],
+      "created_at": "2026-10-09T09:36:00+08:00"
+    }
+  ]
+}

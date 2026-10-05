@@ -1,0 +1,32 @@
+{
+  "policy_version": "daily_data_policy_v1",
+  "components": [
+    {"component_id": "universe", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"},
+    {"component_id": "calendar", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"},
+    {"component_id": "security_master", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"},
+    {"component_id": "raw_price", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"},
+    {"component_id": "adjusted_price", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"},
+    {"component_id": "industry", "role": "optional", "missing_policy": "BLOCK_DEPENDENT_STRATEGY"},
+    {"component_id": "valuation", "role": "optional", "missing_policy": "BLOCK_DEPENDENT_STRATEGY"},
+    {"component_id": "fundamental_pit", "role": "optional", "missing_policy": "BLOCK_DEPENDENT_STRATEGY"},
+    {"component_id": "corporate_action", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"},
+    {"component_id": "limit_reference", "role": "required", "missing_policy": "FAIL_DAILY_SNAPSHOT"}
+  ],
+  "strategies": [
+    {
+      "strategy_id": "vcp",
+      "factor_set_version": "vcp_frozen_v1",
+      "required_components": ["universe", "calendar", "security_master", "raw_price", "adjusted_price", "corporate_action", "limit_reference"]
+    },
+    {
+      "strategy_id": "alpha158",
+      "factor_set_version": "alpha158_frozen_v1",
+      "required_components": ["universe", "calendar", "security_master", "raw_price", "adjusted_price", "industry", "corporate_action", "limit_reference"]
+    },
+    {
+      "strategy_id": "value_quality_research",
+      "factor_set_version": "value_quality_research_v1",
+      "required_components": ["universe", "calendar", "security_master", "raw_price", "adjusted_price", "industry", "valuation", "fundamental_pit", "corporate_action", "limit_reference"]
+    }
+  ]
+}
