@@ -9,7 +9,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-from .ABuSchemaMigration import apply_schema_v1, configure_connection
+from .ABuSchemaMigration import apply_schema, configure_connection
 
 
 def _sha256(path):
@@ -35,7 +35,7 @@ def _atomic_json(path, payload):
 
 class OperationalStore(object):
 
-    def __init__(self, path, initialize=True):
+    def __init__(self, path, initialize=True, target_schema_version=1):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._transaction_lock = threading.RLock()
@@ -43,8 +43,16 @@ class OperationalStore(object):
             str(self.path), timeout=5.0, isolation_level=None,
             check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
-        configure_connection(self.connection)
-        self.schema_sha256 = apply_schema_v1(self.connection) if initialize else None
+        try:
+            configure_connection(self.connection)
+            self.schema_sha256 = (
+                apply_schema(self.connection, target_schema_version)
+                if initialize else None)
+            self.schema_version = (
+                None if not initialize else int(target_schema_version))
+        except Exception:
+            self.connection.close()
+            raise
 
     @contextmanager
     def transaction(self, immediate=True):

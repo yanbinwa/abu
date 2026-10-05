@@ -24,7 +24,9 @@ class AccountSessionCoordinator(object):
     def _advance(self, account_id, event_id, expected_account_version,
                  trading_session, target_phase, expected_phase_version,
                  processed_at, *, preopen_snapshot_id=None,
-                 apply_domain_changes=None, notification_parts=()):
+                 apply_domain_changes=None, notification_parts=(),
+                 affected_trade_ids=(),
+                 affected_management_activation_ids=()):
         session = int(trading_session)
         if target_phase not in self.EVENT_TYPES:
             raise ValueError("unsupported coordinated account phase")
@@ -52,6 +54,16 @@ class AccountSessionCoordinator(object):
             domain_value = (
                 {} if apply_domain_changes is None else
                 apply_domain_changes(connection, context, input_event))
+            resolved_notification_parts = (
+                notification_parts(domain_value)
+                if callable(notification_parts) else notification_parts)
+            resolved_trade_ids = (
+                affected_trade_ids(domain_value)
+                if callable(affected_trade_ids) else affected_trade_ids)
+            resolved_activation_ids = (
+                affected_management_activation_ids(domain_value)
+                if callable(affected_management_activation_ids)
+                else affected_management_activation_ids)
             payload = {
                 "account_id": account_id,
                 "trading_session": session,
@@ -67,7 +79,10 @@ class AccountSessionCoordinator(object):
                     "idempotency_key": transition.idempotency_key,
                     "domain_value": domain_value,
                 },
-                notification_parts=tuple(notification_parts),
+                notification_parts=tuple(resolved_notification_parts),
+                affected_trade_ids=tuple(resolved_trade_ids),
+                affected_management_activation_ids=tuple(
+                    resolved_activation_ids),
                 trading_session=session)
 
         return self.accounts.execute_event(
@@ -95,11 +110,16 @@ class AccountSessionCoordinator(object):
     def process_open_sells(
             self, account_id, event_id, expected_account_version,
             trading_session, expected_phase_version, processed_at,
-            apply_domain_changes):
+            apply_domain_changes, notification_parts=(),
+            affected_trade_ids=(), affected_management_activation_ids=()):
         return self._advance(
             account_id, event_id, expected_account_version, trading_session,
             "OPEN_SELLS_PROCESSED", expected_phase_version, processed_at,
-            apply_domain_changes=apply_domain_changes)
+            apply_domain_changes=apply_domain_changes,
+            notification_parts=notification_parts,
+            affected_trade_ids=affected_trade_ids,
+            affected_management_activation_ids=(
+                affected_management_activation_ids))
 
     def enable_intraday_buys(
             self, account_id, event_id, expected_account_version,

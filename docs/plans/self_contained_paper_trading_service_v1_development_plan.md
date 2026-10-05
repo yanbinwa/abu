@@ -476,7 +476,8 @@ M5 的软件开发可以与 M4 后半段并行，但 M6 必须等待 M4 和 M5 �
 - [x] M6-T04 在同一事务写入账户变化、stream watermark、domain event 和 notification outbox。
 - [x] M6-T05 将 `IntradayOrderMachine` 改为持久化增量状态转换，不重算全部历史 Bar。
 - [x] M6-T06 接入 `hybrid_intraday_entry_v1`，只允许分钟买入执行。
-- [ ] M6-T07 保持既有日线卖出、核算和退出语义。
+- [x] M6-T07 保持既有日线卖出、T+1、公司行为应收、费用、滑点、停牌和跌停延期语义；
+  日线退出仍由收盘后生成订单、后续交易日开盘执行，不新增分钟卖出入口。
 - [x] M6-T08 实现 `account_sessions` 和交易日阶段状态机。
 - [x] M6-T09 构建单一 `preopen_snapshot`，固定公司行为、证券状态、价格限制、应收截止和
   待执行订单；缺少任一必需输入时不进入 `PREOPEN_INPUTS_READY`。

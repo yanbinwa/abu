@@ -7,10 +7,15 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 SCHEMA_NAME = "paper_service_operational_v1"
+LATEST_SCHEMA_VERSION = 2
 
 
 def _schema_path():
     return Path(__file__).resolve().parent / "schemas" / "operational_v1.sql"
+
+
+def _schema_v2_path():
+    return Path(__file__).resolve().parent / "schemas" / "operational_v2.sql"
 
 
 def schema_sha256(path=None):
@@ -52,6 +57,57 @@ def apply_schema_v1(connection, path=None):
             connection.rollback()
         raise
     return digest
+
+
+def apply_schema(connection, target_version=1):
+    """Apply monotonic migrations up to an explicitly requested version.
+
+    Version 1 remains the default so the active M5 data-only runtime cannot be
+    upgraded merely by importing newer research code.  A caller must create a
+    verified backup before explicitly requesting version 2 for account work.
+    """
+    target = int(target_version)
+    if target < 1 or target > LATEST_SCHEMA_VERSION:
+        raise ValueError("unsupported operational schema target")
+    digests = [apply_schema_v1(connection)]
+    current = connection.execute(
+        "SELECT max(version) FROM schema_migrations").fetchone()[0]
+    if int(current) > target:
+        raise ValueError(
+            "database schema {} is newer than requested runtime schema {}".format(
+                current, target))
+    if target >= 2:
+        path = _schema_v2_path()
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        existing = connection.execute(
+            "SELECT sha256 FROM schema_migrations WHERE version=2"
+        ).fetchone()
+        if existing is not None:
+            if existing[0] != digest:
+                raise ValueError("schema v2 hash differs from applied migration")
+        else:
+            safe_hash = digest.replace("'", "''")
+            lines = []
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip().upper().startswith("PRAGMA "):
+                    lines.append(line)
+            script = "BEGIN EXCLUSIVE;\n{}\nINSERT INTO schema_migrations " \
+                "(version, name, applied_at, sha256) VALUES " \
+                "(2, 'paper_service_operational_v2', " \
+                "strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}');\nCOMMIT;".format(
+                    "\n".join(lines), safe_hash)
+            try:
+                connection.executescript(script)
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
+        digests.append(digest)
+    # Preserve the public v1 digest exactly.  Existing backup manifests and
+    # release evidence use the migration file digest as the schema identity.
+    if target == 1:
+        return digests[0]
+    return hashlib.sha256("|".join(digests).encode("utf-8")).hexdigest()
 
 
 def configure_connection(connection):

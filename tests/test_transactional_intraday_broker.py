@@ -204,6 +204,27 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             "SELECT count(*) FROM orders").fetchone()[0])
         self.assertEqual(1, self.accounts.account("account-a")["account_version"])
 
+    def test_registration_after_preopen_readiness_is_rejected(self):
+        self.register_order()
+        self.enable_buys()
+        second_order = replace(
+            self.approved_order(), order_id="order-b", intent_id="intent-b",
+            symbol="sz000001")
+        second_event = self.append_event(
+            "ApprovedOrderCommitted", self.order_event["stream_id"], 2,
+            previous_event_id=self.order_event["event_id"],
+            payload={"approved_order": asdict(second_order)})
+        with self.assertRaisesRegex(ValueError, "before preopen readiness"):
+            self.broker.register_approved_order(
+                "account-a", second_event["event_id"], 6, second_order,
+                reservation_id="reservation-b",
+                reserved_cash_micros=1_106_000_000,
+                reserved_risk_micros=100_000_000,
+                risk_decision_id="risk-b", processed_at=NOW,
+                upper_limit_raw=11.0)
+        self.assertEqual(1, self.store.connection.execute(
+            "SELECT count(*) FROM orders").fetchone()[0])
+
     def test_restart_resumes_next_snapshot_and_commits_fill_once(self):
         self.register_order()
         self.enable_buys()
@@ -211,7 +232,7 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             1, (self.minute_bar("09:35"),))
         first = self.broker.process_snapshot_batch(
             "account-a", first_event["event_id"], 6, SESSION,
-            first_batch, NOW)
+            first_batch, NOW, next_trading_session=20261012)
         self.assertEqual("CANDIDATE", first.value["outcomes"][0]["state"])
         restarted = TransactionalIntradayBroker(
             self.accounts, execution_policy_id="M1",
@@ -222,10 +243,10 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             previous_event_id=first_event["event_id"])
         second = restarted.process_snapshot_batch(
             "account-a", second_event["event_id"], 7, SESSION,
-            second_batch, NOW)
+            second_batch, NOW, next_trading_session=20261012)
         replay = restarted.process_snapshot_batch(
             "account-a", second_event["event_id"], 7, SESSION,
-            second_batch, NOW)
+            second_batch, NOW, next_trading_session=20261012)
         self.assertEqual("FILLED", second.value["outcomes"][0]["state"])
         self.assertTrue(replay.replayed)
         self.assertEqual(1, self.store.connection.execute(
@@ -239,6 +260,15 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
         self.assertEqual(100, self.row(
             "positions", "account_id=? AND symbol=?",
             ("account-a", "sh600000"))["quantity"])
+        trade = self.row(
+            "logical_trades", "account_id=? AND trade_id=?",
+            ("account-a", second.value["fills"][0]["trade_id"]))
+        self.assertEqual("OPEN", trade["status"])
+        lot = self.row(
+            "position_lots", "account_id=? AND trade_id=?",
+            ("account-a", trade["trade_id"]))
+        self.assertEqual(20261012, lot["sellable_on_session"])
+        self.assertEqual(100, lot["quantity"])
         self.assertEqual(1, self.store.connection.execute(
             "SELECT count(*) FROM notification_outbox").fetchone()[0])
         self.assertEqual(2, self.store.connection.execute(
@@ -251,7 +281,7 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             1, (self.minute_bar("09:35"),))
         self.broker.process_snapshot_batch(
             "account-a", first_event["event_id"], 6, SESSION,
-            first_batch, NOW)
+            first_batch, NOW, next_trading_session=20261012)
         second_event, second_batch = self.minute_snapshot(
             2, (self.minute_bar("09:37", opening=10.2),),
             previous=first_batch.snapshot_id,
@@ -262,7 +292,7 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "fault after fill"):
             failing.process_snapshot_batch(
                 "account-a", second_event["event_id"], 7, SESSION,
-                second_batch, NOW)
+                second_batch, NOW, next_trading_session=20261012)
         self.assertEqual(0, self.store.connection.execute(
             "SELECT count(*) FROM fills").fetchone()[0])
         self.assertEqual("WAITING", self.row(
@@ -285,7 +315,8 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             1, (self.minute_bar("10:32"),),
             decision_cutoff="2026-10-09T10:32:02+08:00")
         result = self.broker.process_snapshot_batch(
-            "account-a", event["event_id"], 6, SESSION, batch, NOW)
+            "account-a", event["event_id"], 6, SESSION, batch, NOW,
+            next_trading_session=20261012)
         self.assertEqual("EXPIRED", result.value["outcomes"][0]["state"])
         self.assertEqual("EXPIRED", self.row(
             "orders", "account_id=? AND order_id=?",
@@ -293,6 +324,23 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
         self.assertEqual(0, self.row(
             "account_balances", "account_id=?", ("account-a",)
         )["reserved_cash_micros"])
+
+    def test_unpinned_batch_metadata_is_rejected_before_order_transition(self):
+        self.register_order()
+        self.enable_buys()
+        event, batch = self.minute_snapshot(
+            1, (self.minute_bar("09:35"),))
+        with self.assertRaisesRegex(ValueError, "stream mismatch"):
+            self.broker.process_snapshot_batch(
+                "account-a", event["event_id"], 6, SESSION,
+                replace(batch, stream_id="market-minute:wrong:1"), NOW,
+                next_trading_session=20261012)
+        self.assertEqual("APPROVED", self.row(
+            "orders", "account_id=? AND order_id=?",
+            ("account-a", "order-a"))["status"])
+        self.assertEqual(0, self.row(
+            "order_execution_states", "account_id=? AND order_id=?",
+            ("account-a", "order-a"))["last_consumed_minute_sequence"])
 
     def test_m2_waits_for_capacity_then_fills_from_later_reference(self):
         m2 = TransactionalIntradayBroker(
@@ -304,7 +352,7 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             1, (self.minute_bar("09:35", volume=1_000),))
         first = m2.process_snapshot_batch(
             "account-a", first_event["event_id"], 6, SESSION,
-            first_batch, NOW)
+            first_batch, NOW, next_trading_session=20261012)
         self.assertEqual("ACTIVE", first.value["outcomes"][0]["state"])
         second_event, second_batch = self.minute_snapshot(
             2, (self.minute_bar("09:36", volume=5_000),),
@@ -312,7 +360,7 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             previous_event_id=first_event["event_id"])
         second = m2.process_snapshot_batch(
             "account-a", second_event["event_id"], 7, SESSION,
-            second_batch, NOW)
+            second_batch, NOW, next_trading_session=20261012)
         self.assertEqual("CANDIDATE", second.value["outcomes"][0]["state"])
         third_event, third_batch = self.minute_snapshot(
             3, (self.minute_bar("09:38", opening=10.2),),
@@ -320,7 +368,7 @@ class TransactionalIntradayBrokerTest(unittest.TestCase):
             previous_event_id=second_event["event_id"])
         third = m2.process_snapshot_batch(
             "account-a", third_event["event_id"], 8, SESSION,
-            third_batch, NOW)
+            third_batch, NOW, next_trading_session=20261012)
         self.assertEqual("FILLED", third.value["outcomes"][0]["state"])
         self.assertEqual(1, len(third.value["fills"]))
 

@@ -21,10 +21,12 @@ class TransactionalExecutionCosts:
     broker_rate: float = 0.00025
     min_commission: float = 5.0
     transfer_rate: float = 0.00001
+    sell_stamp_rate: float = 0.0005
 
     def __post_init__(self):
         if any(value < 0 for value in (
-                self.broker_rate, self.min_commission, self.transfer_rate)):
+                self.broker_rate, self.min_commission, self.transfer_rate,
+                self.sell_stamp_rate)):
             raise ValueError("execution costs must be non-negative")
 
     def buy_fees_micros(self, quantity, price_raw):
@@ -33,6 +35,13 @@ class TransactionalExecutionCosts:
         transfer = gross * self.transfer_rate
         return int(round((commission + transfer) * PRICE_MICROS))
 
+    def sell_fees_micros(self, quantity, price_raw):
+        gross = int(quantity) * float(price_raw)
+        commission = max(gross * self.broker_rate, self.min_commission)
+        transfer = gross * self.transfer_rate
+        stamp = gross * self.sell_stamp_rate
+        return int(round((commission + transfer + stamp) * PRICE_MICROS))
+
 
 class TransactionalIntradayBroker(object):
     """Persist frozen M1/M2 order machines through the account commit point."""
@@ -40,7 +49,9 @@ class TransactionalIntradayBroker(object):
     POLICY_FAMILY = "hybrid_intraday_entry_v1"
 
     def __init__(self, accounts, *, execution_policy_id,
-                 intraday_config=None, costs=None, ledger=None):
+                 intraday_config=None, costs=None, ledger=None,
+                 exit_policy_id="daily_exit_v1", exit_policy_version="1",
+                 risk_policy_id="portfolio_risk_v1", risk_policy_version="1"):
         if execution_policy_id not in ("M1", "M2"):
             raise ValueError("execution_policy_id must be M1 or M2")
         self.accounts = accounts
@@ -48,6 +59,13 @@ class TransactionalIntradayBroker(object):
         self.config = intraday_config or IntradayExecutionConfig()
         self.costs = costs or TransactionalExecutionCosts()
         self.ledger = ledger or TransactionalPaperLedger()
+        self.exit_policy_id = str(exit_policy_id)
+        self.exit_policy_version = str(exit_policy_version)
+        self.risk_policy_id = str(risk_policy_id)
+        self.risk_policy_version = str(risk_policy_version)
+        if not all((self.exit_policy_id, self.exit_policy_version,
+                    self.risk_policy_id, self.risk_policy_version)):
+            raise ValueError("trade policy identities are required")
 
     @staticmethod
     def _micros(value):
@@ -98,6 +116,15 @@ class TransactionalIntradayBroker(object):
             if int(input_event["trading_session"] or 0) != int(
                     approved_order.valid_session):
                 raise ValueError("approved order event trading session mismatch")
+            account_session = connection.execute(
+                "SELECT phase, blocked_reason FROM account_sessions "
+                "WHERE account_id=? AND trading_session=?",
+                (account_id, int(approved_order.valid_session))).fetchone()
+            if (account_session is None or
+                    account_session["phase"] != "CREATED" or
+                    account_session["blocked_reason"] is not None):
+                raise ValueError(
+                    "approved orders must be frozen before preopen readiness")
             balance = connection.execute(
                 "SELECT * FROM account_balances WHERE account_id=?",
                 (account_id,)).fetchone()
@@ -112,6 +139,8 @@ class TransactionalIntradayBroker(object):
                 quantity=approved_order.quantity, status="APPROVED",
                 valid_session=approved_order.valid_session,
                 created_at=processed_at, updated_at=processed_at,
+                trade_id=make_record_id(
+                    "trade", context.account_id, approved_order.order_id),
                 actor_activation_id=(
                     approved_order.actor_activation_id or None))
             self.ledger.insert_reservation(
@@ -202,7 +231,7 @@ class TransactionalIntradayBroker(object):
             updated_at=processed_at)
 
     def _apply_fill(self, connection, context, machine, outcome, snapshot_id,
-                    processed_at):
+                    source_event_id, next_trading_session, processed_at):
         order = machine.order
         reservation = self._active_reservation(
             connection, context.account_id, order.order_id)
@@ -214,6 +243,9 @@ class TransactionalIntradayBroker(object):
             (context.account_id, order.symbol)).fetchone()
         if existing is not None and int(existing["quantity"]) > 0:
             raise ValueError("hybrid intraday v1 cannot add to a position")
+        if (next_trading_session is None or
+                int(next_trading_session) <= int(order.valid_session)):
+            raise ValueError("next trading session is required for T+1 lot")
         gross_micros = self._micros(
             order.quantity * outcome.fill_price_raw)
         fees_micros = self.costs.buy_fees_micros(
@@ -250,8 +282,41 @@ class TransactionalIntradayBroker(object):
             quantity=order.quantity, sellable_quantity=0,
             average_cost_micros=int(round(total_cost / order.quantity)),
             updated_at=processed_at)
+        trade_id = make_record_id(
+            "trade", context.account_id, order.order_id)
+        activation_id = order.actor_activation_id or context.active_activation_id
+        self.ledger.insert_logical_trade(
+            connection, context, trade_id=trade_id, symbol=order.symbol,
+            opened_under_activation_id=activation_id,
+            management_activation_id=activation_id,
+            entry_policy_id=self.POLICY_FAMILY,
+            entry_policy_version=self.execution_policy_id,
+            exit_policy_id=self.exit_policy_id,
+            exit_policy_version=self.exit_policy_version,
+            risk_policy_id=self.risk_policy_id,
+            risk_policy_version=self.risk_policy_version,
+            opened_at=outcome.available_at or processed_at)
+        lot_id = make_record_id("lot", context.account_id, fill_id)
+        self.ledger.insert_position_lot(
+            connection, context, lot_id=lot_id, trade_id=trade_id,
+            symbol=order.symbol, quantity=order.quantity,
+            sellable_on_session=int(next_trading_session),
+            cost_price_micros=int(round(total_cost / order.quantity)),
+            opened_at=outcome.available_at or processed_at)
+        self.ledger.insert_position_event(
+            connection, context,
+            position_event_id=make_record_id(
+                "position-event", context.account_id, fill_id),
+            symbol=order.symbol, event_type="BUY_FILLED",
+            source_event_id=source_event_id,
+            payload={
+                "fill_id": fill_id, "trade_id": trade_id,
+                "lot_id": lot_id, "quantity": order.quantity,
+                "sellable_on_session": int(next_trading_session),
+            }, occurred_at=outcome.available_at or processed_at)
         return {
             "fill_id": fill_id, "order_id": order.order_id,
+            "trade_id": trade_id, "lot_id": lot_id,
             "symbol": order.symbol, "quantity": order.quantity,
             "fill_price_micros": self._micros(outcome.fill_price_raw),
             "fees_micros": fees_micros,
@@ -259,15 +324,26 @@ class TransactionalIntradayBroker(object):
 
     def process_snapshot_batch(
             self, account_id, input_event_id, expected_account_version,
-            trading_session, snapshot_batch, processed_at):
+            trading_session, snapshot_batch, processed_at,
+            next_trading_session=None):
         """Advance every pending frozen order with one pinned minute snapshot."""
         session = int(trading_session)
 
         def handler(connection, context, input_event):
             if input_event["snapshot_id"] != snapshot_batch.snapshot_id:
                 raise ValueError("minute event and batch snapshot mismatch")
+            if input_event["stream_id"] != snapshot_batch.stream_id:
+                raise ValueError("minute event and batch stream mismatch")
             if int(input_event["sequence_no"]) != int(snapshot_batch.sequence_no):
                 raise ValueError("minute event and batch sequence mismatch")
+            snapshot = connection.execute(
+                "SELECT previous_snapshot_id, decision_cutoff FROM market_snapshots "
+                "WHERE snapshot_id=?", (snapshot_batch.snapshot_id,)).fetchone()
+            if (snapshot is None or
+                    snapshot["previous_snapshot_id"] !=
+                    snapshot_batch.previous_snapshot_id or
+                    snapshot["decision_cutoff"] != snapshot_batch.decision_cutoff):
+                raise ValueError("minute batch metadata is not catalog-pinned")
             rows = connection.execute(
                 "SELECT order_id, status FROM orders WHERE account_id=? "
                 "AND side='buy' AND valid_session=? "
@@ -318,7 +394,8 @@ class TransactionalIntradayBroker(object):
                 if machine.state == "FILLED":
                     fills.append(self._apply_fill(
                         connection, context, machine, outcome,
-                        snapshot_batch.snapshot_id, processed_at))
+                        snapshot_batch.snapshot_id, input_event["event_id"],
+                        next_trading_session, processed_at))
                 elif machine.state in ("CANCELLED", "EXPIRED"):
                     self._release_terminal(
                         connection, context, machine.order.order_id,

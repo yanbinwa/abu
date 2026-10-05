@@ -29,6 +29,9 @@ an offset and operational timestamps use `Asia/Shanghai`.
 5. Before a migration, create and verify a SQLite Online Backup plus backup manifest.
 6. `operational_v1.sql` is idempotent for an empty or already-created v1 database; it is not a
    substitute for later version-to-version migration scripts.
+7. The active data-only runtime continues to request schema v1. Account shadow work must explicitly
+   request schema v2 after a verified backup; v2 adds durable cash/share receivables and sell-share
+   reservations without changing v1 tables in place.
 
 ## Transaction boundaries
 
