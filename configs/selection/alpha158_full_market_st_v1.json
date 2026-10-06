@@ -1,0 +1,33 @@
+{
+  "experiment_id": "alpha158_full_market_baostock_st_v1",
+  "source_strategy_version": "alpha158_lite_v1",
+  "training_signal_start_date": 20220101,
+  "evaluation_start_date": 20250101,
+  "evaluation_end_date": 20260930,
+  "st_panel": "/Users/wjy/abu/data/selection_research/baostock_st_exclusion_panel_20261003_v1/st_exclusion_panel_v4.npz",
+  "st_audit": "/Users/wjy/abu/data/selection_research/baostock_st_exclusion_audit_20261003_v2.json",
+  "st_panel_sha256": "d00e28200bb9733721b1b5134890ac98eb19f629f6fff9ef81ce59a0c1e4aeb9",
+  "st_audit_sha256": "3ef3a98e67c6ba8a4aeff1d17598d1549fd64092c736b9dd5a9a8568946bb8b7",
+  "baseline_predictions": "/Users/wjy/abu/backtests/current_strategy_comparison_20261004_v2/inputs/alpha.csv.gz",
+  "baseline_research_report": "/Users/wjy/abu/backtests/current_strategy_comparison_20261004_v2/inputs/alpha_report.json",
+  "variants": [
+    "frozen_shenzhen_baseline",
+    "full_market_model_shenzhen_only",
+    "full_market_model_all_a_share"
+  ],
+  "parameter_search_performed": false,
+  "promotion_allowed": false,
+  "acceptance_gates": {
+    "full_market_rank_ic_block_ci_low_min": 0.0,
+    "return_delta_pct_points_min": 0.0,
+    "max_drawdown_worsening_pct_points_max": 1.0,
+    "liquidation_return_delta_pct_points_min": 0.0,
+    "positive_annual_delta_min_count": 2,
+    "paired_daily_return_delta_block_ci_low_min": 0.0
+  },
+  "limitations": [
+    "2025-2026 has already been observed and is not a new holdout",
+    "the experiment changes universe eligibility only and does not tune model or execution parameters",
+    "historical BaoStock ST is an exclusion field and is forbidden as an alpha feature"
+  ]
+}

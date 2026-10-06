@@ -1,0 +1,31 @@
+{
+  "config_version": "baostock_float_share_fallback_v1",
+  "source_version": "baostock_0.9.4_daily_float_fallback_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/baostock_float_share_fallback_raw",
+  "security_master": "/Users/wjy/abu/data/selection_research/security_master.csv",
+  "cninfo_coverage_audit": "/Users/wjy/abu/data/selection_research/cninfo_share_capital_coverage_20261004_v1.json",
+  "history_start_date": "2019-01-01",
+  "history_end_date": "2026-09-30",
+  "symbol_start_overrides": {},
+  "fields": [
+    "date",
+    "code",
+    "close",
+    "volume",
+    "turn",
+    "tradestatus",
+    "isST"
+  ],
+  "source_role": "float_share_gap_fallback_only",
+  "derive_float_shares": true,
+  "success_status": "COLLECTED_FLOAT_SHARE_GAP_FALLBACK",
+  "failure_status": "BLOCKED_FLOAT_SHARE_GAP_FALLBACK",
+  "strict_rules": {
+    "allow_primary_override": false,
+    "allow_local_daily_override": false,
+    "share_relative_tolerance": 0.005,
+    "float_market_cap_coverage_min": 0.995,
+    "reject_derived_above_total_beyond_tolerance": true
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

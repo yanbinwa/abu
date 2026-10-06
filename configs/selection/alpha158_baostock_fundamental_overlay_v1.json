@@ -1,0 +1,35 @@
+{
+  "experiment_id": "alpha158_baostock_fundamental_overlay_v1",
+  "research_label": "BAOSTOCK_RESEARCH_ONLY_NOT_PIT_ADMITTED",
+  "signal_start_date": 20250101,
+  "signal_end_date": 20260930,
+  "download_start_date": "2024-11-01",
+  "download_end_date": "2026-09-30",
+  "candidate_depth": 100,
+  "alpha_rank_weight": 0.8,
+  "fundamental_rank_weight": 0.2,
+  "value_fields": [
+    "peTTM",
+    "pbMRQ",
+    "psTTM",
+    "pcfNcfTTM"
+  ],
+  "minimum_valid_value_fields": 2,
+  "missing_fundamental_percentile": 0.5,
+  "stress_delay_sessions": 20,
+  "slippage_bps": 25.0,
+  "parameter_search_performed": false,
+  "promotion_allowed": false,
+  "source_limitations": [
+    "BaoStock does not expose historical valuation revision lineage",
+    "historical results are exploratory and cannot establish PIT integrity",
+    "2025-2026 has already been observed and is not a new holdout"
+  ],
+  "acceptance_gates": {
+    "raw_return_delta_pct_points_min": 0.0,
+    "raw_max_drawdown_worsening_pct_points_max": 0.5,
+    "delayed_return_delta_pct_points_min": 0.0,
+    "positive_annual_delta_min_count": 2,
+    "paired_daily_return_delta_block_ci_low_min": 0.0
+  }
+}

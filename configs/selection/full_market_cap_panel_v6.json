@@ -1,0 +1,27 @@
+{
+  "config_version": "full_market_cap_panel_v6",
+  "trading_sessions_source": "/Users/wjy/abu/data/csv/sh000300_20061002_20261002",
+  "float_share_priority": [
+    "cninfo_share_change",
+    "local_daily",
+    "baostock_turnover_derived"
+  ],
+  "selection_policy": {
+    "cninfo_effective_time": "next_session_after_announcement_or_update",
+    "local_daily_role": "missing_primary_fallback_only",
+    "baostock_role": "missing_primary_and_local_fallback_only",
+    "preserve_source_conflicts": true,
+    "allow_conflict_gate_bypass": false
+  },
+  "arbitration_evidence": {
+    "report": "/Users/wjy/abu/data/selection_research/full_market_float_share_conflict_audit_20261006_v3/audit.json",
+    "report_sha256": "bdc720062363fdad8fbb6cbd74e31c2d54ff568175758406ea5b80dbb8ef4177",
+    "sample_is_unbiased_population_estimate": false
+  },
+  "strict_rules": {
+    "share_reconciliation_relative_tolerance": 0.005,
+    "total_market_cap_coverage_min": 0.995,
+    "float_market_cap_coverage_min": 0.995
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}

@@ -1,0 +1,30 @@
+{
+  "probe_id": "baostock_valuation_pit_probe_v1",
+  "source_version": "baostock_0.9.40_query_history_k_data_plus",
+  "pilot_symbols": "/Users/wjy/abu/data/selection_research/fundamental_structured_pilot_20261003_v1/pilot_symbols.json",
+  "structured_facts": "/Users/wjy/abu/data/selection_research/fundamental_structured_pilot_20261003_v1/structured_extracted.jsonl",
+  "share_events": "/Users/wjy/abu/data/selection_research/fundamental_structured_pilot_20261003_v1/share_events.jsonl",
+  "start_date": "2020-01-01",
+  "end_date": "2026-09-30",
+  "symbol_start_overrides": {
+    "sz000013": "1999-01-01"
+  },
+  "fields": [
+    "date",
+    "code",
+    "close",
+    "peTTM",
+    "pbMRQ",
+    "psTTM",
+    "pcfNcfTTM",
+    "tradestatus",
+    "isST"
+  ],
+  "implied_eps_change_threshold": 0.005,
+  "event_match_calendar_days": 10,
+  "coverage_threshold": 0.95,
+  "source_role": "auxiliary_cross_check_only",
+  "historical_revision_lineage_claimed": false,
+  "parameter_search_performed": false,
+  "research_label": "RESEARCH_ONLY_NOT_FOR_TRADING"
+}

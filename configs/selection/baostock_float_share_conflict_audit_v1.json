@@ -1,0 +1,30 @@
+{
+  "config_version": "baostock_float_share_conflict_audit_v1",
+  "source_version": "baostock_0.9.4_float_conflict_audit_v1",
+  "raw_root": "/Users/wjy/abu/data/selection_research/baostock_float_share_conflict_audit_raw",
+  "history_start_date": "2019-01-01",
+  "history_end_date": "2026-09-30",
+  "symbol_start_overrides": {},
+  "fields": [
+    "date",
+    "code",
+    "close",
+    "volume",
+    "turn",
+    "tradestatus",
+    "isST"
+  ],
+  "source_role": "share_conflict_audit_only",
+  "derive_float_shares": true,
+  "success_status": "COLLECTED_FLOAT_SHARE_CONFLICT_AUDIT",
+  "failure_status": "BLOCKED_FLOAT_SHARE_CONFLICT_AUDIT",
+  "strict_rules": {
+    "allow_primary_override": false,
+    "allow_local_daily_override": false,
+    "share_relative_tolerance": 0.005,
+    "future_event_match_max_calendar_days": 365,
+    "sample_global_top_symbols": 50,
+    "sample_per_stratum": 3
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}
