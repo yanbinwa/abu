@@ -1,0 +1,46 @@
+{
+  "experiment_id": "alpha158_residual_overheat_research_v1",
+  "research_status": "RESEARCH_ONLY_NOT_ADMITTED",
+  "source_strategy_version": "alpha158_lite_v1",
+  "model": "median_imputer_plus_ridge_alpha_100",
+  "feature_family": [
+    "residual_momentum_6_1_standardized",
+    "industry_excess_60d_standardized",
+    "max_return_20d",
+    "overheat_5d_amount",
+    "gap_range_overheat"
+  ],
+  "feature_definitions": {
+    "residual_momentum_6_1_standardized": "beta estimated on t-251 through t-21; mean/std of market residual returns over t-125 through t-21",
+    "industry_excess_60d_standardized": "60-session stock return minus same-day industry mean, divided by 60-session realized volatility",
+    "max_return_20d": "maximum daily return from t-19 through t",
+    "overheat_5d_amount": "positive 5-session return multiplied by positive log current-amount/20-session-median",
+    "gap_range_overheat": "positive open/previous-close gap multiplied by positive intraday range/previous-close"
+  },
+  "walk_forward": {
+    "start_date": 20220101,
+    "end_date": 20260930,
+    "minimum_train_dates": 252,
+    "validation_dates": 63,
+    "test_dates": 63,
+    "label_horizon_sessions": 20,
+    "embargo_sessions": 0,
+    "training_date_stride": 5
+  },
+  "portfolio": {
+    "construction": "alpha158_price_only_no_rank_exit_v1",
+    "score_depth": 100,
+    "slippage_bps": 25.0
+  },
+  "gates": {
+    "paired_ic_delta_block_ci_low_min": 0.0,
+    "top10_uplift_delta_min": 0.0,
+    "positive_year_ic_delta_min_count": 3,
+    "portfolio_return_delta_pct_points_min": 0.0,
+    "max_drawdown_worsening_limit_pct_points": 1.0,
+    "liquidation_return_delta_pct_points_min": 0.0
+  },
+  "parameter_search_performed": false,
+  "observed_history": true,
+  "new_holdout": false
+}

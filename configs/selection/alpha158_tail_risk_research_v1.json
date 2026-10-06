@@ -1,0 +1,14 @@
+{
+  "entry_horizon_sessions": 20,
+  "entry_profit_r_multiple": 1.0,
+  "holding_horizon_sessions": 5,
+  "training_sample_stride": 5,
+  "logistic_c": 0.1,
+  "minimum_training_rows": 200,
+  "minimum_class_rows": 20,
+  "top_risk_fraction": 0.1,
+  "minimum_year_auc": 0.55,
+  "minimum_top_risk_lift": 1.25,
+  "maximum_calibration_error": 0.1,
+  "random_state": 0
+}

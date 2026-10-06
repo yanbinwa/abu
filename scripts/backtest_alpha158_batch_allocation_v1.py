@@ -100,7 +100,8 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                      position_add_policy=None,
                      position_add_execution_mode="executable",
                      initial_cash=1_000_000.0, review_overlay=None,
-                     scale_out_config=None, batch_allocator=None, batch_observer=None):
+                     scale_out_config=None, batch_allocator=None, batch_observer=None,
+                     entry_overlay=None, exit_overlay=None):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -277,6 +278,12 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             if reason:
                 event_symbols.add(symbol)
                 pending_exits.append((symbol, reason, None, "CLOSE"))
+            elif exit_overlay is not None:
+                reason = exit_overlay.signal(
+                    panel, executor, day, symbol, exits.states[symbol])
+                if reason:
+                    event_symbols.add(symbol)
+                    pending_exits.append((symbol, reason, None, "CLOSE"))
             elif scale_out is not None:
                 scale_out_candidates.append(symbol)
         if (day-first) % policy_config.review_interval_sessions == 0:
@@ -290,6 +297,9 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             if review_overlay is not None:
                 rank_exits, entry_symbols = review_overlay.filter_review(
                     panel, executor, day, rank_exits, entry_symbols)
+            if entry_overlay is not None:
+                entry_symbols = entry_overlay.filter_entries(
+                    panel, executor, day, entry_symbols)
             pending_exits.extend((symbol, "PERSISTENT_RANK_EXIT", None, "CLOSE")
                                  for symbol in rank_exits)
             lookup = {str(row.symbol): row._asdict()
@@ -413,4 +423,8 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
     if batch_observer is not None:
         audit["observed_plans"] = batch_observer.plans
         audit["order_diagnostics"] = batch_observer.order_diagnostics
+    if entry_overlay is not None:
+        audit["entry_ml_decisions"] = entry_overlay.decisions
+    if exit_overlay is not None:
+        audit["exit_ml_decisions"] = exit_overlay.decisions
     return result, audit

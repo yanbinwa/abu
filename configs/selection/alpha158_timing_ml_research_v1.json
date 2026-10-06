@@ -1,0 +1,13 @@
+{
+  "entry_horizon_sessions": 20,
+  "entry_roundtrip_cost_bps": 70.0,
+  "entry_probability_threshold": 0.5,
+  "exit_horizon_sessions": 5,
+  "exit_probability_threshold": 0.35,
+  "exit_persistence_sessions": 2,
+  "training_sample_stride": 5,
+  "logistic_c": 0.1,
+  "minimum_training_rows": 200,
+  "minimum_class_rows": 20,
+  "random_state": 0
+}
