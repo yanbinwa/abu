@@ -15,12 +15,19 @@
 返回其他模式时会标记 `shadow_contract_rejected`，同时仍按冻结版本独立运行
 模拟盘，不会把短线事件传入订单生成、排序或风险审批。
 
-当前 AKShare/东方财富接口可提供涨停、跌停、炸板、昨日涨停和强势股池。现有接口没有经过验证的全市场竞价明细和题材原因历史流，因此：
+当前 AKShare/东方财富接口可提供涨停、跌停、炸板、昨日涨停和强势股池。
+`eltdx 3.2.3` 作为可选的通达信 F10 收盘事件侧车，保存涨停、炸板、跌停、
+连板高度和涨停原因，并与 AKShare 生成集合差异。它不是
+`shortline_forward_v1` 的必需数据集，失败不会阻断前瞻锚点、模拟盘或通知，
+任何字段也不会进入策略。现有接口仍没有经过验证的全市场竞价明细和题材原因
+历史流，因此：
 
 - 09:26 只保存全市场报价代理，并标记 `PROXY_NOT_EXACT_AUCTION_FEED`；
 - `所属行业` 保存为 `source_category_raw`，不能当作题材；
-- `入选理由` 只作为供应商原文，不能替代涨停原因；
-- 题材、原因和精确竞价因子在接入带时间戳的来源前保持 `UNKNOWN`。
+- `入选理由` 只作为 AKShare 供应商原文，不能替代涨停原因；
+- eltdx 的 `涨停原因` 单独保存为 `limit_reason_raw`，并标记
+  `SECONDARY_SOURCE_UNVALIDATED`，不与 `selection_reason_raw` 混用；
+- 题材和精确竞价因子在接入带时间戳且通过连续验收的来源前保持 `UNKNOWN`。
 
 ## 2. 手工运行命令
 
@@ -38,6 +45,17 @@
 
 流水线顺序为：行情与参考价快照、短线事件 shadow 快照、冻结的模拟盘策略、企业微信成交提醒。短线事件采集失败会记录 `shadow_error`，不会阻断冻结策略。
 
+`run_vcp_paper_pipeline.py` 默认请求 eltdx 侧车。独立运行采集器时需显式开启：
+
+```bash
+.venv/bin/python scripts/collect_shortline_events.py \
+  --phase close --enable-eltdx-shadow
+```
+
+依赖由 `requirements.txt` 固定为 `eltdx==3.2.3`。该库及其上游数据仅按
+研究用途使用；部署环境未安装依赖时会生成可审计的 optional-source 错误批次，
+不会把缺失误记成零事件。
+
 如 15:20 前已运行行情更新，15:20 后再次运行即可补抓当天事件。非交易日不会写入零事件事实，也不会回补上一交易日。
 
 ## 3. 数据目录
@@ -49,6 +67,11 @@
       batch_id/
         provider_frame.json
         normalized.csv        # 首个合格 payload 才生成
+        metadata.json
+    eltdx_limit_up_down_list/
+      batch_id/
+        provider_frame.json   # eltdx 原始行
+        normalized.csv        # 仅同日成功采集时生成
         metadata.json
   _runs/YYYYMMDD/run_id.json
 ```
@@ -75,6 +98,10 @@
 - 规范化路径存在；
 - 只有 `FORWARD_CAPTURE + success + schema 完整` 可进入 as-of shadow；
 - 空响应、schema 漂移和请求失败没有被记成零事件。
+- `required_capture_count` 只统计五个 AKShare 锚点数据集；eltdx 单独计入
+  `optional_capture_count` 和 `optional_capture_status`；
+- `cross_source_comparisons` 只记录集合交集、Jaccard 和两侧独有代码，不能自动
+  删除任一来源记录。
 
 连续采集验收以 `eligible_session_count` 为准。非交易日产生的 `_runs` 记录不计为有效会话。
 

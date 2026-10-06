@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -14,7 +15,10 @@ from abupy.AlphaBu.ABuShortLineEvents import (
     ImmutableShortLineSnapshotStore, ThemeTaxonomyMapping, ThemeTaxonomyStore,
     load_shortline_forward_policy, read_forward_anchor,
 )
-from scripts.collect_shortline_events import DATASETS, collect, normalize_event_pool
+from scripts.collect_shortline_events import (
+    DATASETS, ELTDX_DATASET, collect, normalize_eltdx_limit_events,
+    normalize_event_pool,
+)
 from scripts.audit_shortline_forward import audit
 
 
@@ -40,11 +44,60 @@ class FakeAkShare:
         raise AttributeError(name)
 
 
+class FakeAuctionAkShare(FakeAkShare):
+    def stock_zh_a_spot_em(self):
+        row = provider_frame().iloc[0].to_dict()
+        row.update({"今开": 10.5, "昨收": 10.0, "成交量": 100000})
+        return pd.DataFrame([row] * 3000)
+
+
 class PartialAkShare(FakeAkShare):
     def __getattr__(self, name):
         if name == "stock_zt_pool_strong_em":
             return lambda date: pd.DataFrame()
         return super().__getattr__(name)
+
+
+class FakeEltdxRow:
+    def __init__(self, code="000001", status="limit_up"):
+        self.code = code
+        self.full_code = "sz" + code
+        self.name = "测试证券"
+        self.status = status
+        self.board_level = 2
+        self.highest_board_level = 3
+        self.industry = "银行"
+        self.limit_reason = "并购重组"
+        self.limit_reason_extra = "供应商补充原因"
+        self.seal_amount = 123456
+        self.limit_time = "10:00:00"
+        self.broken_count = 1
+        self.raw = {
+            "rqex": "20260930", "ZQDM": code, "SC": "0",
+            "ZQJC": self.name, "ztlb": status, "lbts": 2, "zglb": 3,
+            "ztyy": self.limit_reason, "fde": self.seal_amount,
+            "ztsj": self.limit_time, "kbcs": self.broken_count,
+            "sshy": self.industry,
+        }
+
+
+class FakeEltdxResult:
+    def __init__(self):
+        self.rows = [
+            FakeEltdxRow("000001", "limit_up"),
+            FakeEltdxRow("600001", "broken"),
+            FakeEltdxRow("000002", "limit_down"),
+        ]
+
+
+class FakeEltdxClient:
+    def limit_up_down_list(self, date):
+        return FakeEltdxResult()
+
+
+class FailedEltdxClient:
+    def limit_up_down_list(self, date):
+        raise TimeoutError("eltdx unavailable")
 
 
 class ShortLineForwardTest(unittest.TestCase):
@@ -138,6 +191,17 @@ class ShortLineForwardTest(unittest.TestCase):
                     paper_dir=directory, now=datetime(2026, 10, 9, 15, 30),
                     ak_module=FakeAkShare(), calendar_dates={20261009})
 
+    def test_auction_status_uses_auction_capture_not_close_requirements(self):
+        with TemporaryDirectory() as directory:
+            result = collect(
+                trade_date=20261009, phase="auction", output_dir=directory,
+                paper_dir=directory,
+                now=datetime(2026, 10, 9, 9, 26, 30, tzinfo=SHANGHAI),
+                ak_module=FakeAuctionAkShare(), calendar_dates={20261009})
+            self.assertEqual(result["status"], "captured")
+            self.assertEqual(result["required_capture_count"], 0)
+            self.assertEqual(result["asof_eligible_count"], 1)
+
     def test_non_trading_day_writes_run_evidence_but_no_event_fact(self):
         with TemporaryDirectory() as directory:
             result = collect(
@@ -179,6 +243,61 @@ class ShortLineForwardTest(unittest.TestCase):
             self.assertEqual(len(audit_rows), len(DATASETS))
             self.assertEqual(audit_report["forward_anchor_trade_date"], 20261009)
             self.assertEqual(audit_report["forward_eligible_dates"], [20261009])
+
+    def test_eltdx_sidecar_is_normalized_but_never_strategy_eligible(self):
+        normalized = normalize_eltdx_limit_events(
+            FakeEltdxResult(), 20261009,
+            "2026-10-09T15:30:00+08:00")
+        self.assertEqual(
+            normalized.event_type.tolist(),
+            ["CLOSED_UPPER", "FAILED_UPPER_CLOSE", "CLOSED_LOWER"])
+        self.assertEqual(normalized.iloc[0].symbol, "sz000001")
+        self.assertEqual(normalized.iloc[0].limit_reason_raw, "并购重组")
+        self.assertTrue(pd.isna(normalized.iloc[0].selection_reason_raw))
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = collect(
+                trade_date=20261009, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 9, 15, 30, tzinfo=SHANGHAI),
+                ak_module=FakeAkShare(), calendar_dates={20261009},
+                enable_eltdx_shadow=True, eltdx_client=FakeEltdxClient())
+            self.assertEqual(result["status"], "captured")
+            self.assertTrue(result["forward_archive_complete"])
+            self.assertEqual(result["required_capture_count"], len(DATASETS))
+            self.assertEqual(result["optional_capture_count"], 1)
+            self.assertEqual(result["optional_capture_status"], "captured")
+            self.assertEqual(result["strategy_feature_eligible_count"], 0)
+            self.assertEqual(len(result["cross_source_comparisons"]), 3)
+            sidecar = [item for item in result["captures"]
+                       if item["dataset"] == ELTDX_DATASET][0]
+            self.assertTrue(sidecar["asof_feature_allowed"])
+            self.assertFalse(sidecar["strategy_feature_allowed"])
+            self.assertIn("SECONDARY_SOURCE_UNVALIDATED",
+                          sidecar["quality_codes"])
+
+    def test_eltdx_failure_does_not_block_required_archive_or_anchor(self):
+        with TemporaryDirectory() as directory, mock.patch(
+                "scripts.collect_shortline_events.time.sleep"):
+            root = Path(directory)
+            result = collect(
+                trade_date=20261009, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 9, 15, 30, tzinfo=SHANGHAI),
+                ak_module=FakeAkShare(), calendar_dates={20261009},
+                enable_eltdx_shadow=True,
+                eltdx_client=FailedEltdxClient())
+            self.assertEqual(result["status"], "captured")
+            self.assertTrue(result["forward_archive_complete"])
+            self.assertTrue(result["forward_sample_eligible"])
+            self.assertEqual(result["optional_capture_status"],
+                             "captured_partial_or_failed")
+            sidecar = [item for item in result["captures"]
+                       if item["dataset"] == ELTDX_DATASET][0]
+            self.assertEqual(sidecar["status"], "error")
+            self.assertFalse(sidecar["asof_feature_allowed"])
+            self.assertEqual(result["cross_source_comparisons"], [])
 
     def test_forward_anchor_waits_for_first_complete_archive_on_or_after_date(self):
         with TemporaryDirectory() as directory:

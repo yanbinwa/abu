@@ -1,0 +1,28 @@
+{
+  "experiment_id": "shortline_market_entry_gate_v1",
+  "research_status": "RETROSPECTIVE_SCREEN_ONLY_NOT_ADMITTED",
+  "source_strategy_version": "alpha158_lite_low_turnover_v3",
+  "history_dataset_version": "eltdx_close_history_backfill_v1",
+  "availability_evidence": "BACKFILLED_QUERY",
+  "strict_pit": false,
+  "primary_overlap_start": 20230727,
+  "primary_overlap_end": 20240930,
+  "score_column": "ridge_score",
+  "gate": {
+    "rule": "sentiment_z63_lte_and_risk_z63_gte",
+    "sentiment_z63_max": -1.0,
+    "risk_z63_min": 1.0,
+    "action": "suppress_new_review_entries_only",
+    "rank_exits_unchanged": true,
+    "existing_positions_unchanged": true
+  },
+  "slippage_bps": [
+    25.0,
+    40.0,
+    60.0
+  ],
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "parameter_search": false,
+  "automatic_admission": false
+}

@@ -1,0 +1,66 @@
+{
+  "experiment_id": "shortline_close_event_overlay_v1",
+  "research_status": "RETROSPECTIVE_SCREEN_ONLY_NOT_ADMITTED",
+  "source_strategy_version": "alpha158_lite_low_turnover_v3",
+  "history_dataset_version": "eltdx_close_history_backfill_v1",
+  "availability_evidence": "BACKFILLED_QUERY",
+  "strict_pit": false,
+  "primary_overlap_start": 20230727,
+  "primary_overlap_end": 20240930,
+  "label_horizon_sessions": 20,
+  "model": "median_imputer_standard_scaler_ridge",
+  "primary_input_score": "ridge_score",
+  "walk_forward": {
+    "minimum_train_dates": 126,
+    "validation_dates": 42,
+    "test_dates": 42,
+    "training_date_stride": 5,
+    "embargo_sessions": 0,
+    "ridge_alpha": 100.0
+  },
+  "factor_arms": {
+    "meta_base": [
+      "base_rank_centered"
+    ],
+    "meta_stock": [
+      "base_rank_centered",
+      "event_limit_up",
+      "event_broken",
+      "event_limit_down",
+      "event_board_level",
+      "event_broken_count",
+      "event_log_seal_amount"
+    ],
+    "meta_market": [
+      "base_rank_centered",
+      "base_x_sentiment_z63",
+      "base_x_risk_z63"
+    ],
+    "meta_combined": [
+      "base_rank_centered",
+      "event_limit_up",
+      "event_broken",
+      "event_limit_down",
+      "event_board_level",
+      "event_broken_count",
+      "event_log_seal_amount",
+      "base_x_sentiment_z63",
+      "base_x_risk_z63"
+    ]
+  },
+  "excluded_from_primary": [
+    "limit_reason",
+    "limit_reason_extra",
+    "industry",
+    "security_name"
+  ],
+  "slippage_bps": [
+    25.0,
+    40.0,
+    60.0
+  ],
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "multiple_testing": "benjamini_hochberg_across_three_event_arms",
+  "automatic_admission": false
+}

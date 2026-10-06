@@ -34,6 +34,13 @@ from abupy.AlphaBu.ABuShortLineEvents import (  # noqa: E402
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 SOURCE = "akshare_eastmoney"
 ADAPTER_VERSION = "akshare_shortline_forward_v1"
+ELTDX_SOURCE = "eltdx_tdx"
+ELTDX_ADAPTER_VERSION = "eltdx_shortline_forward_v1"
+ELTDX_DATASET = "eltdx_limit_up_down_list"
+ELTDX_REQUIRED_COLUMNS = (
+    "rqex", "ZQDM", "SC", "ZQJC", "ztlb", "lbts", "zglb", "ztyy",
+    "fde", "ztsj", "kbcs", "sshy",
+)
 DEFAULT_FORWARD_CONFIG = (
     ROOT / "configs/selection/shortline_forward_v1.json")
 
@@ -81,7 +88,7 @@ def _symbol(code):
     value = str(code).strip().split(".")[0].zfill(6)
     if value.startswith(("600", "601", "603", "605", "688", "689")):
         return "sh" + value
-    if value.startswith(("000", "001", "002", "003", "300", "301")):
+    if value.startswith(("000", "001", "002", "003", "300", "301", "302")):
         return "sz" + value
     if value.startswith(("4", "8", "92")):
         return "bj" + value
@@ -135,6 +142,92 @@ def normalize_event_pool(frame, dataset, trade_date, ingested_at):
             "adapter_version": ADAPTER_VERSION,
         })
     return pd.DataFrame(rows)
+
+
+def eltdx_provider_frame(result):
+    """Preserve the provider rows without treating parsed fields as raw facts."""
+    return pd.DataFrame([dict(getattr(row, "raw", {}) or {})
+                         for row in getattr(result, "rows", ())])
+
+
+def normalize_eltdx_limit_events(result, trade_date, ingested_at):
+    """Normalize eltdx events while keeping reasons separate from selections."""
+    event_types = {
+        "limit_up": "CLOSED_UPPER",
+        "broken": "FAILED_UPPER_CLOSE",
+        "limit_down": "CLOSED_LOWER",
+    }
+    rows = []
+    for row in getattr(result, "rows", ()):
+        status = str(getattr(row, "status", ""))
+        rows.append({
+            "trade_date": int(trade_date),
+            "symbol": _symbol(getattr(row, "code", "")),
+            "security_name": getattr(row, "name", None),
+            "event_type": event_types.get(status, "UNKNOWN_PROVIDER_EVENT"),
+            "last_price": None,
+            "limit_price": None,
+            "amount": None,
+            "turnover_pct": None,
+            "free_float_market_cap": None,
+            "seal_amount": getattr(row, "seal_amount", None),
+            "first_limit_time": None,
+            "last_limit_time": None,
+            "provider_limit_time": getattr(row, "limit_time", None),
+            "open_break_count": getattr(row, "broken_count", None),
+            "provider_streak": getattr(row, "board_level", None),
+            "provider_highest_streak": getattr(
+                row, "highest_board_level", None),
+            "provider_limit_stat": None,
+            "source_category_raw": getattr(row, "industry", None),
+            "selection_reason_raw": None,
+            "limit_reason_raw": getattr(row, "limit_reason", None),
+            "limit_reason_extra_raw": getattr(
+                row, "limit_reason_extra", None),
+            "source": ELTDX_SOURCE,
+            "source_dataset": ELTDX_DATASET,
+            "effective_at": str(int(trade_date)),
+            "available_at": ingested_at,
+            "ingested_at": ingested_at,
+            "availability_evidence": "FORWARD_CAPTURE" if
+            int(datetime.fromisoformat(ingested_at).strftime("%Y%m%d")) ==
+            int(trade_date) else "BACKFILLED_QUERY",
+            "adapter_version": ELTDX_ADAPTER_VERSION,
+        })
+    return pd.DataFrame(rows)
+
+
+def compare_close_event_sets(ak_frames, eltdx_result):
+    """Return audit-only set differences without resolving either source."""
+    status_by_dataset = {
+        "stock_zt_pool_em": "limit_up",
+        "stock_zt_pool_zbgc_em": "broken",
+        "stock_zt_pool_dtgc_em": "limit_down",
+    }
+    eltdx_sets = {}
+    for row in getattr(eltdx_result, "rows", ()):
+        status = str(getattr(row, "status", ""))
+        code = str(getattr(row, "code", "") or "").zfill(6)
+        if code:
+            eltdx_sets.setdefault(status, set()).add(code)
+    comparisons = []
+    for dataset, status in status_by_dataset.items():
+        frame = ak_frames.get(dataset)
+        if frame is None or frame.empty or "代码" not in frame:
+            continue
+        left = eltdx_sets.get(status, set())
+        right = set(frame["代码"].astype(str).str.split(".").str[0].str.zfill(6))
+        union = left | right
+        comparisons.append({
+            "event_status": status,
+            "eltdx_count": len(left),
+            "akshare_count": len(right),
+            "intersection_count": len(left & right),
+            "jaccard": float(len(left & right) / len(union)) if union else 1.0,
+            "only_eltdx": sorted(left - right),
+            "only_akshare": sorted(right - left),
+        })
+    return comparisons
 
 
 def normalize_auction_quote(frame, trade_date, ingested_at):
@@ -203,7 +296,8 @@ def _market_snapshot_evidence(paper_dir, trade_date):
 
 
 def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
-            ak_module=None, calendar_dates=None, forward_config=None):
+            ak_module=None, calendar_dates=None, forward_config=None,
+            enable_eltdx_shadow=False, eltdx_client=None):
     now = now or datetime.now(SHANGHAI)
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must include a timezone")
@@ -235,6 +329,9 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
         "order_mutation_allowed": policy.order_mutation_allowed,
         "paper_order_effect": "none",
         "theme_reason_status": "UNAVAILABLE_FROM_CURRENT_AKSHARE_ENDPOINTS",
+        "optional_sources": {
+            "eltdx": "enabled_shadow" if enable_eltdx_shadow else "disabled",
+        },
     }
     run_dir = Path(output_dir) / "_runs" / str(trade_date)
     run_path = run_dir / (run_id + ".json")
@@ -287,6 +384,7 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
                 strategy_feature_allowed=False, error=error)
         run["captures"].append(meta)
     else:
+        ak_frames = {}
         for index, dataset in enumerate(selected_datasets(phase)):
             spec = DATASETS[dataset]
             try:
@@ -294,6 +392,7 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
                     ak, dataset)(date=str(trade_date)))
                 normalized = normalize_event_pool(
                     frame, dataset, trade_date, ingested_at)
+                ak_frames[dataset] = frame
                 meta = store.write(
                     frame, source=SOURCE, dataset=dataset,
                     trade_date=trade_date, ingested_at=ingested_at,
@@ -314,15 +413,81 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
                     strategy_feature_allowed=False, error=error)
             run["captures"].append(meta)
 
+        if enable_eltdx_shadow:
+            eltdx_result = None
+            try:
+                if eltdx_client is None:
+                    from eltdx import F10Client
+                    eltdx_client = F10Client(timeout=15.0)
+                eltdx_result = _retry(
+                    lambda: eltdx_client.limit_up_down_list(str(trade_date)))
+                frame = eltdx_provider_frame(eltdx_result)
+                normalized = normalize_eltdx_limit_events(
+                    eltdx_result, trade_date, ingested_at)
+                meta = store.write(
+                    frame, source=ELTDX_SOURCE, dataset=ELTDX_DATASET,
+                    trade_date=trade_date, ingested_at=ingested_at,
+                    nonce="{}_eltdx".format(run_id),
+                    required_columns=ELTDX_REQUIRED_COLUMNS,
+                    normalized=normalized, phase="close_pools",
+                    source_semantics="tdx_f10_limit_up_down_list",
+                    quality_codes=("SHADOW_ONLY_FORWARD_SAMPLE",
+                                   "SECONDARY_SOURCE_UNVALIDATED"),
+                    strategy_feature_allowed=False)
+            except Exception as error:
+                meta = store.write(
+                    pd.DataFrame(), source=ELTDX_SOURCE,
+                    dataset=ELTDX_DATASET, trade_date=trade_date,
+                    ingested_at=ingested_at,
+                    nonce="{}_eltdx".format(run_id),
+                    required_columns=ELTDX_REQUIRED_COLUMNS,
+                    phase="close_pools",
+                    source_semantics="tdx_f10_limit_up_down_list",
+                    quality_codes=("SHADOW_ONLY_FORWARD_SAMPLE",
+                                   "SECONDARY_SOURCE_UNVALIDATED"),
+                    strategy_feature_allowed=False, error=error)
+            run["captures"].append(meta)
+            run["optional_sources"]["eltdx"] = meta["status"]
+            run["theme_reason_status"] = (
+                "ELTDX_LIMIT_REASON_SHADOW_UNVALIDATED" if
+                meta["status"] == "success" else
+                "ELTDX_LIMIT_REASON_UNAVAILABLE")
+            run["cross_source_comparisons"] = (
+                compare_close_event_sets(ak_frames, eltdx_result)
+                if eltdx_result is not None else [])
+
     statuses = pd.Series([item["status"] for item in run["captures"]]).value_counts()
     run["status_counts"] = {str(key): int(value) for key, value in statuses.items()}
     run["asof_eligible_count"] = sum(
         bool(item["asof_feature_allowed"]) for item in run["captures"])
     run["strategy_feature_eligible_count"] = sum(
         bool(item["strategy_feature_allowed"]) for item in run["captures"])
-    if run["asof_eligible_count"] == len(run["captures"]) and run["captures"]:
+    required_captures = [
+        item for item in run["captures"]
+        if item.get("dataset") in policy.required_datasets]
+    optional_captures = [
+        item for item in run["captures"]
+        if item.get("dataset") not in policy.required_datasets]
+    required_eligible = sum(
+        bool(item["asof_feature_allowed"]) for item in required_captures)
+    optional_eligible = sum(
+        bool(item["asof_feature_allowed"]) for item in optional_captures)
+    run["required_capture_count"] = len(required_captures)
+    run["required_asof_eligible_count"] = required_eligible
+    run["optional_capture_count"] = len(optional_captures)
+    run["optional_asof_eligible_count"] = optional_eligible
+    run["optional_capture_status"] = (
+        "not_enabled" if not optional_captures else
+        ("captured" if all(
+            item.get("status") == "success" for item in optional_captures) else
+         "captured_partial_or_failed"))
+    status_captures = (run["captures"] if phase == "auction" else
+                       required_captures)
+    status_eligible = sum(
+        bool(item["asof_feature_allowed"]) for item in status_captures)
+    if status_eligible == len(status_captures) and status_captures:
         run["status"] = "captured"
-    elif run["asof_eligible_count"]:
+    elif status_eligible:
         run["status"] = "captured_partial"
     else:
         run["status"] = "captured_no_asof_eligible_data"
@@ -362,13 +527,15 @@ def main():
     parser.add_argument("--forward-config", type=Path,
                         default=DEFAULT_FORWARD_CONFIG)
     parser.add_argument("--now", help="test/recovery clock with timezone")
+    parser.add_argument("--enable-eltdx-shadow", action="store_true")
     args = parser.parse_args()
     now = (datetime.fromisoformat(args.now).astimezone(SHANGHAI) if args.now
            else datetime.now(SHANGHAI))
     trade_date = args.trade_date or int(now.strftime("%Y%m%d"))
     result = collect(
         trade_date=trade_date, phase=args.phase, output_dir=args.output_dir,
-        paper_dir=args.paper_dir, now=now, forward_config=args.forward_config)
+        paper_dir=args.paper_dir, now=now, forward_config=args.forward_config,
+        enable_eltdx_shadow=args.enable_eltdx_shadow)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

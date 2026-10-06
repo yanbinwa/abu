@@ -100,6 +100,7 @@ def main():
             "--trade-date", str(event_trade_date),
             "--phase", "close", "--output-dir", str(args.shortline_dir),
             "--paper-dir", str(args.paper_dir),
+            "--enable-eltdx-shadow",
         ]))
     else:
         shortline = {
