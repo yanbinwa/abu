@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -15,7 +16,13 @@ DEFAULT_CONFIG = ROOT / "configs/selection/fundamental_full_market_v1.json"
 DEFAULT_MAPPING = ROOT / "configs/selection/fundamental_structured_field_mapping_v4.json"
 
 
-def _completed(output_dir, expected_symbols):
+def _config_sha256(config):
+    return hashlib.sha256(json.dumps(
+        config, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _completed(output_dir, expected_symbols, expected_config_sha256):
     report_path = output_dir / "collection_report.json"
     facts_path = output_dir / "structured_fundamental_facts.jsonl"
     if not report_path.is_file() or not facts_path.is_file():
@@ -24,7 +31,8 @@ def _completed(output_dir, expected_symbols):
     return (report.get("status") ==
             "COLLECTED_FULL_MARKET_FUNDAMENTAL_CHUNK" and
             not report.get("failures") and
-            int(report.get("symbol_count", -1)) == int(expected_symbols))
+            int(report.get("symbol_count", -1)) == int(expected_symbols) and
+            report.get("config_sha256") == expected_config_sha256)
 
 
 def run_chunks(universe_dir, collection_root, config_path=DEFAULT_CONFIG,
@@ -32,6 +40,7 @@ def run_chunks(universe_dir, collection_root, config_path=DEFAULT_CONFIG,
     universe_dir, collection_root = Path(universe_dir), Path(collection_root)
     config_path, mapping_path = Path(config_path), Path(mapping_path)
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    config_sha256 = _config_sha256(config)
     if int(workers) != 1 or int(workers) > int(config["max_concurrency"]):
         raise ValueError("fundamental collection must run sequentially")
     manifest = json.loads((universe_dir / "universe_manifest.json").read_text(
@@ -48,7 +57,7 @@ def run_chunks(universe_dir, collection_root, config_path=DEFAULT_CONFIG,
         if chunk_id not in requested:
             continue
         output_dir = collection_root / "chunks" / chunk_id
-        if _completed(output_dir, chunk["symbol_count"]):
+        if _completed(output_dir, chunk["symbol_count"], config_sha256):
             skipped.append(chunk_id)
             continue
         if output_dir.exists():

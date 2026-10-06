@@ -8,6 +8,9 @@ import pandas as pd
 
 from scripts.audit_fundamental_theme_availability_v1 import build_audit
 from scripts.collect_full_market_fundamental_chunk_v1 import collect
+from scripts.eastmoney_bounded_statements_v1 import (
+    BoundedEastmoneyStatementClient,
+)
 from scripts.freeze_full_market_fundamental_universe_v1 import freeze
 from scripts.merge_full_market_fundamental_v1 import merge
 from scripts.run_full_market_fundamental_chunks_v1 import run_chunks
@@ -82,6 +85,86 @@ class Adapter(object):
 
 
 class FullMarketFundamentalPipelineTest(unittest.TestCase):
+
+    def test_bounded_listed_client_filters_dates_before_detail_requests(self):
+        class Response(object):
+            def __init__(self, body=None, text=""):
+                self.body, self.text = body, text
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self.body
+
+        class Session(object):
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, params, **_kwargs):
+                self.calls.append((url, params))
+                if url.endswith("/Index"):
+                    return Response(text='<input id="hidctype" value="4">')
+                if "DateAjaxNew" in url:
+                    return Response({"data": [
+                        {"REPORT_DATE": value} for value in (
+                            "2027-03-31", "2026-09-30", "2020-03-31",
+                            "2017-12-31", "2016-12-31")
+                    ]})
+                return Response({"data": [{
+                    "REPORT_DATE": value, "NOTICE_DATE": "2026-10-01",
+                    "UPDATE_DATE": "2026-10-01", "CURRENCY": "CNY",
+                } for value in params["dates"].split(",")]})
+
+        session = Session()
+        client = BoundedEastmoneyStatementClient(
+            "2017-01-01", "2026-09-30", session=session,
+            max_attempts=1)
+        frame = client.statement_frame("SH600001", "income", False)
+        self.assertEqual(sorted(frame.REPORT_DATE.tolist()), [
+            "2017-12-31", "2020-03-31", "2026-09-30"])
+        self.assertEqual(len(session.calls), 3)
+        self.assertEqual(client.metrics()["selected_report_periods"], 3)
+
+    def test_bounded_delisted_client_reuses_catalog_for_three_statements(self):
+        class Response(object):
+            text = ""
+
+            def __init__(self, body):
+                self.body = body
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self.body
+
+        class Session(object):
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, params, **_kwargs):
+                self.calls.append(params)
+                if params["sty"].startswith("SECUCODE"):
+                    return Response({"result": {"data": [
+                        {"REPORT_DATE": "2016-12-31 00:00:00"},
+                        {"REPORT_DATE": "2024-12-31 00:00:00"},
+                    ]}})
+                return Response({"result": {"data": [{
+                    "REPORT_DATE": "2024-12-31",
+                    "NOTICE_DATE": "2025-04-20",
+                    "UPDATE_DATE": "2025-04-20", "CURRENCY": "CNY",
+                }]}})
+
+        session = Session()
+        client = BoundedEastmoneyStatementClient(
+            "2017-01-01", "2026-09-30", session=session,
+            max_attempts=1)
+        for statement in ("income", "balance", "cashflow"):
+            self.assertEqual(len(client.statement_frame(
+                "SH600001", statement, True)), 1)
+        self.assertEqual(len(session.calls), 4)
+        self.assertEqual(client.metrics()["selected_report_periods"], 1)
 
     def _master(self, root):
         path = root / "master.csv"

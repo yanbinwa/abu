@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections import defaultdict
@@ -34,6 +35,14 @@ def merge(universe_dir, collection_roots, output_dir, config, mapping):
     collection_roots = [Path(root) for root in collection_roots]
     manifest_path = universe_dir / "universe_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    config_sha256 = hashlib.sha256(json.dumps(
+        config, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+    mapping_sha256 = hashlib.sha256(json.dumps(
+        mapping, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+    if manifest.get("config_sha256") != config_sha256:
+        raise ValueError("collection config differs from frozen manifest")
     completed, missing, failed, facts = [], [], [], []
     seen_keys, seen_by_statement = set(), defaultdict(set)
     field_symbols = defaultdict(set)
@@ -56,7 +65,9 @@ def merge(universe_dir, collection_roots, output_dir, config, mapping):
             report = json.loads(report_path.read_text(encoding="utf-8"))
             if (report.get("status") ==
                     "COLLECTED_FULL_MARKET_FUNDAMENTAL_CHUNK" and
-                    not report.get("failures")):
+                    not report.get("failures") and
+                    report.get("config_sha256") == config_sha256 and
+                    report.get("mapping_sha256") == mapping_sha256):
                 candidates.append((report, facts_path))
             else:
                 blocked.append(str(directory))

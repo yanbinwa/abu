@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -16,8 +17,9 @@ if str(ROOT) not in sys.path:
 from abupy.AlphaBu.ABuFundamentalPIT import (  # noqa: E402
     ImmutableFundamentalRawStore, stable_json, structured_statement_records,
 )
-from scripts.collect_structured_fundamental_v4 import (  # noqa: E402
-    frame_snapshot, load_akshare_adapters,
+from scripts.collect_structured_fundamental_v4 import frame_snapshot  # noqa: E402
+from scripts.eastmoney_bounded_statements_v1 import (  # noqa: E402
+    load_bounded_eastmoney_adapters,
 )
 
 
@@ -37,11 +39,15 @@ def collect(config, mapping, chunk_dir, output_dir, adapters=None,
     symbols = list(frozen["symbols"])
     if set(symbols) != set(records):
         raise ValueError("frozen fundamental symbols and records disagree")
-    adapters = adapters or load_akshare_adapters()
+    adapters = adapters or load_bounded_eastmoney_adapters(config)
     store = ImmutableFundamentalRawStore(raw_root or config["raw_root"])
     ingested_at = ingested_at or datetime.now(timezone.utc).isoformat()
     facts, audits, failures, empty = [], [], [], []
     required_statements = tuple(config["required_statements"])
+    config_sha256 = hashlib.sha256(stable_json(config).encode(
+        "utf-8")).hexdigest()
+    mapping_sha256 = hashlib.sha256(stable_json(mapping).encode(
+        "utf-8")).hexdigest()
     for symbol in symbols:
         provider_symbol = symbol[:2].upper() + symbol[2:]
         is_delisted = records[symbol]["security_status"] == "delisted"
@@ -51,6 +57,9 @@ def collect(config, mapping, chunk_dir, output_dir, adapters=None,
                 "adapter": adapter.__name__, "symbol": provider_symbol,
                 "statement_type": statement_type, "adapter_snapshot": True,
                 "security_status": records[symbol]["security_status"],
+                "report_period_start_date": config.get(
+                    "report_period_start_date"),
+                "report_period_end_date": config.get("history_end_date"),
             }
             metadata = {"batch_id": None}
             try:
@@ -92,14 +101,22 @@ def collect(config, mapping, chunk_dir, output_dir, adapters=None,
     facts_path = output_dir / "structured_fundamental_facts.jsonl"
     facts_path.write_text("".join(
         stable_json(item) + "\n" for item in facts), encoding="utf-8")
+    clients = {id(adapter.client): adapter.client
+               for adapter in adapters.values()
+               if hasattr(adapter, "client")}
     report = {
         "config_version": config["config_version"],
+        "config_sha256": config_sha256,
         "adapter_version": config["adapter_version"],
+        "mapping_version": mapping.get("mapping_version"),
+        "mapping_sha256": mapping_sha256,
         "source_role": config["source_role"],
         "symbol_count": len(symbols),
         "statement_attempt_count": len(symbols) * len(required_statements),
         "fact_value_count": len(facts), "dataset_audits": audits,
         "explicit_empty_statements": empty, "failures": failures,
+        "adapter_request_metrics": [client.metrics()
+                                    for client in clients.values()],
         "revision_history_complete": False,
         "status": ("COLLECTED_FULL_MARKET_FUNDAMENTAL_CHUNK"
                    if not failures else
