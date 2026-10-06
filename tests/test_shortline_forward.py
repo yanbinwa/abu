@@ -16,8 +16,8 @@ from abupy.AlphaBu.ABuShortLineEvents import (
     load_shortline_forward_policy, read_forward_anchor,
 )
 from scripts.collect_shortline_events import (
-    DATASETS, ELTDX_DATASET, collect, normalize_eltdx_limit_events,
-    normalize_event_pool,
+    DATASETS, ELTDX_DATASET, LHB_DATASETS, collect,
+    normalize_eltdx_limit_events, normalize_event_pool, normalize_lhb_events,
 )
 from scripts.audit_shortline_forward import audit
 
@@ -49,6 +49,45 @@ class FakeAuctionAkShare(FakeAkShare):
         row = provider_frame().iloc[0].to_dict()
         row.update({"今开": 10.5, "昨收": 10.0, "成交量": 100000})
         return pd.DataFrame([row] * 3000)
+
+
+def lhb_detail_frame():
+    return pd.DataFrame([{
+        "代码": "000001", "上榜日": "2026-10-09",
+        "龙虎榜净买额": 100000, "龙虎榜买入额": 600000,
+        "龙虎榜卖出额": 500000, "龙虎榜成交额": 1100000,
+        "市场总成交额": 10000000, "换手率": 5.0,
+        "流通市值": 1000000000, "上榜原因": "日涨幅偏离值达7%",
+        "解读": "看多", "上榜后1日": 1.0, "上榜后2日": 2.0,
+        "上榜后5日": 5.0, "上榜后10日": 10.0,
+    }])
+
+
+def lhb_institution_frame():
+    return pd.DataFrame([{
+        "代码": "000001", "上榜日期": "2026-10-09",
+        "买方机构数": 3, "卖方机构数": 1,
+        "机构买入总额": 300000, "机构卖出总额": 100000,
+        "机构买入净额": 200000, "市场总成交额": 10000000,
+        "换手率": 5.0, "流通市值": 1000000000,
+        "上榜原因": "日涨幅偏离值达7%",
+    }])
+
+
+class FakeLhbAkShare(FakeAkShare):
+    def stock_lhb_detail_em(self, start_date, end_date):
+        return lhb_detail_frame()
+
+    def stock_lhb_jgmmtj_em(self, start_date, end_date):
+        return lhb_institution_frame()
+
+
+class FailedLhbAkShare(FakeAkShare):
+    def stock_lhb_detail_em(self, start_date, end_date):
+        raise TimeoutError("LHB unavailable")
+
+    def stock_lhb_jgmmtj_em(self, start_date, end_date):
+        raise TimeoutError("LHB unavailable")
 
 
 class PartialAkShare(FakeAkShare):
@@ -298,6 +337,63 @@ class ShortLineForwardTest(unittest.TestCase):
             self.assertEqual(sidecar["status"], "error")
             self.assertFalse(sidecar["asof_feature_allowed"])
             self.assertEqual(result["cross_source_comparisons"], [])
+
+    def test_lhb_sidecar_excludes_forward_returns_and_stays_shadow_only(self):
+        normalized = normalize_lhb_events(
+            lhb_detail_frame(), "stock_lhb_detail_em", 20261009,
+            "2026-10-09T15:30:00+08:00")
+        self.assertEqual(normalized.iloc[0].symbol, "sz000001")
+        self.assertEqual(normalized.iloc[0].availability_evidence,
+                         "FORWARD_CAPTURE")
+        for field in ("解读", "上榜后1日", "上榜后2日", "上榜后5日",
+                      "上榜后10日"):
+            self.assertNotIn(field, normalized.columns)
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = collect(
+                trade_date=20261009, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 9, 15, 30, tzinfo=SHANGHAI),
+                ak_module=FakeLhbAkShare(), calendar_dates={20261009},
+                enable_lhb_shadow=True)
+            self.assertEqual(result["status"], "captured")
+            self.assertTrue(result["forward_archive_complete"])
+            self.assertEqual(result["required_capture_count"], len(DATASETS))
+            self.assertEqual(result["optional_capture_count"],
+                             len(LHB_DATASETS))
+            self.assertEqual(result["optional_sources"]["lhb"], "captured")
+            sidecars = [item for item in result["captures"]
+                        if item["dataset"] in LHB_DATASETS]
+            self.assertEqual(len(sidecars), 2)
+            self.assertTrue(all(item["asof_feature_allowed"]
+                                for item in sidecars))
+            self.assertTrue(all(not item["strategy_feature_allowed"]
+                                for item in sidecars))
+            self.assertTrue(all(
+                "ONE_SESSION_AVAILABILITY_LAG_REQUIRED" in
+                item["quality_codes"] for item in sidecars))
+
+    def test_lhb_failure_does_not_block_required_archive_or_anchor(self):
+        with TemporaryDirectory() as directory, mock.patch(
+                "scripts.collect_shortline_events.time.sleep"):
+            root = Path(directory)
+            result = collect(
+                trade_date=20261009, phase="close", output_dir=root,
+                paper_dir=root / "paper",
+                now=datetime(2026, 10, 9, 15, 30, tzinfo=SHANGHAI),
+                ak_module=FailedLhbAkShare(), calendar_dates={20261009},
+                enable_lhb_shadow=True)
+            self.assertEqual(result["status"], "captured")
+            self.assertTrue(result["forward_archive_complete"])
+            self.assertTrue(result["forward_sample_eligible"])
+            self.assertEqual(result["optional_sources"]["lhb"],
+                             "captured_partial_or_failed")
+            sidecars = [item for item in result["captures"]
+                        if item["dataset"] in LHB_DATASETS]
+            self.assertEqual(len(sidecars), 2)
+            self.assertTrue(all(item["status"] == "error"
+                                for item in sidecars))
 
     def test_forward_anchor_waits_for_first_complete_archive_on_or_after_date(self):
         with TemporaryDirectory() as directory:

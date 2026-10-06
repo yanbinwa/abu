@@ -254,7 +254,8 @@ def factor_report(predictions, config):
     return ic, uplift, summary, top, primary
 
 
-def run_portfolios(predictions, panel, config, source, policy, risk, output):
+def run_portfolios(predictions, panel, config, source, policy, risk, output,
+                   review_overlay=None):
     rows, annual_rows = [], []
     score_columns = ["ridge_score", *config["factor_arms"]]
     for cost in config["slippage_bps"]:
@@ -268,7 +269,8 @@ def run_portfolios(predictions, panel, config, source, policy, risk, output):
             result, audit = run_low_turnover(
                 panel, ranked,
                 replace(source, label_slippage_bps=float(cost)),
-                policy, risk, int(config["primary_overlap_end"]))
+                policy, risk, int(config["primary_overlap_end"]),
+                review_overlay=review_overlay)
             result.update({"key": key, "score": score,
                            "slippage_bps": float(cost)})
             rows.append(result)

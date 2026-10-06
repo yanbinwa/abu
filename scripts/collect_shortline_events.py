@@ -29,6 +29,12 @@ from abupy.AlphaBu.ABuShortLineEvents import (  # noqa: E402
     ImmutableShortLineSnapshotStore, establish_forward_anchor,
     load_shortline_forward_policy, read_forward_anchor,
 )
+from scripts.download_akshare_lhb_history_v1 import (  # noqa: E402
+    DETAIL_REQUIRED as LHB_DETAIL_REQUIRED,
+    INSTITUTION_REQUIRED as LHB_INSTITUTION_REQUIRED,
+    normalize_detail as normalize_lhb_detail,
+    normalize_institution as normalize_lhb_institution,
+)
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -41,6 +47,19 @@ ELTDX_REQUIRED_COLUMNS = (
     "rqex", "ZQDM", "SC", "ZQJC", "ztlb", "lbts", "zglb", "ztyy",
     "fde", "ztsj", "kbcs", "sshy",
 )
+LHB_ADAPTER_VERSION = "akshare_lhb_forward_v1"
+LHB_DATASETS = {
+    "stock_lhb_detail_em": {
+        "required": LHB_DETAIL_REQUIRED,
+        "normalizer": normalize_lhb_detail,
+        "source_semantics": "dragon_tiger_list_detail",
+    },
+    "stock_lhb_jgmmtj_em": {
+        "required": LHB_INSTITUTION_REQUIRED,
+        "normalizer": normalize_lhb_institution,
+        "source_semantics": "dragon_tiger_list_institution_summary",
+    },
+}
 DEFAULT_FORWARD_CONFIG = (
     ROOT / "configs/selection/shortline_forward_v1.json")
 
@@ -197,6 +216,31 @@ def normalize_eltdx_limit_events(result, trade_date, ingested_at):
     return pd.DataFrame(rows)
 
 
+def normalize_lhb_events(frame, dataset, trade_date, ingested_at):
+    """Normalize same-day LHB records without provider forward-return fields."""
+    spec = LHB_DATASETS[dataset]
+    output = spec["normalizer"](frame).copy()
+    if output.empty:
+        return output
+    actual_dates = set(output["trade_date"].astype(int))
+    if actual_dates != {int(trade_date)}:
+        raise ValueError(
+            "{} returned event dates {} for {}".format(
+                dataset, sorted(actual_dates), int(trade_date)))
+    output["symbol"] = output.pop("code").map(_symbol)
+    output["effective_at"] = str(int(trade_date))
+    output["available_at"] = ingested_at
+    output["ingested_at"] = ingested_at
+    output["availability_evidence"] = (
+        "FORWARD_CAPTURE" if
+        int(datetime.fromisoformat(ingested_at).strftime("%Y%m%d")) ==
+        int(trade_date) else "BACKFILLED_QUERY")
+    output["source"] = SOURCE
+    output["source_dataset"] = dataset
+    output["adapter_version"] = LHB_ADAPTER_VERSION
+    return output
+
+
 def compare_close_event_sets(ak_frames, eltdx_result):
     """Return audit-only set differences without resolving either source."""
     status_by_dataset = {
@@ -297,7 +341,8 @@ def _market_snapshot_evidence(paper_dir, trade_date):
 
 def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
             ak_module=None, calendar_dates=None, forward_config=None,
-            enable_eltdx_shadow=False, eltdx_client=None):
+            enable_eltdx_shadow=False, eltdx_client=None,
+            enable_lhb_shadow=False):
     now = now or datetime.now(SHANGHAI)
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must include a timezone")
@@ -331,6 +376,7 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
         "theme_reason_status": "UNAVAILABLE_FROM_CURRENT_AKSHARE_ENDPOINTS",
         "optional_sources": {
             "eltdx": "enabled_shadow" if enable_eltdx_shadow else "disabled",
+            "lhb": "enabled_shadow" if enable_lhb_shadow else "disabled",
         },
     }
     run_dir = Path(output_dir) / "_runs" / str(trade_date)
@@ -456,6 +502,52 @@ def collect(*, trade_date, phase, output_dir, paper_dir, now=None,
                 compare_close_event_sets(ak_frames, eltdx_result)
                 if eltdx_result is not None else [])
 
+        if enable_lhb_shadow and phase == "close":
+            lhb_statuses = []
+            for offset, (dataset, spec) in enumerate(LHB_DATASETS.items()):
+                frame = pd.DataFrame()
+                try:
+                    frame = _retry(lambda dataset=dataset: getattr(
+                        ak, dataset)(start_date=str(trade_date),
+                                     end_date=str(trade_date)))
+                    normalized = normalize_lhb_events(
+                        frame, dataset, trade_date, ingested_at)
+                    meta = store.write(
+                        frame, source=SOURCE, dataset=dataset,
+                        trade_date=trade_date, ingested_at=ingested_at,
+                        nonce="{}_lhb_{}".format(run_id, offset),
+                        required_columns=spec["required"],
+                        normalized=normalized, phase="close_metadata",
+                        source_semantics=spec["source_semantics"],
+                        quality_codes=(
+                            "SHADOW_ONLY_FORWARD_SAMPLE",
+                            "ONE_SESSION_AVAILABILITY_LAG_REQUIRED",
+                            "PROVIDER_FORWARD_FIELDS_EXCLUDED",
+                        ),
+                        strategy_feature_allowed=False)
+                except Exception as error:
+                    meta = store.write(
+                        frame, source=SOURCE, dataset=dataset,
+                        trade_date=trade_date, ingested_at=ingested_at,
+                        nonce="{}_lhb_{}".format(run_id, offset),
+                        required_columns=spec["required"],
+                        phase="close_metadata",
+                        source_semantics=spec["source_semantics"],
+                        quality_codes=(
+                            "SHADOW_ONLY_FORWARD_SAMPLE",
+                            "ONE_SESSION_AVAILABILITY_LAG_REQUIRED",
+                            "PROVIDER_FORWARD_FIELDS_EXCLUDED",
+                        ),
+                        strategy_feature_allowed=False, error=error)
+                run["captures"].append(meta)
+                lhb_statuses.append(meta["status"])
+            run["optional_sources"]["lhb"] = (
+                "captured" if lhb_statuses and
+                all(status == "success" for status in lhb_statuses) else
+                "captured_partial_or_failed")
+        elif enable_lhb_shadow:
+            run["optional_sources"]["lhb"] = "not_applicable_phase"
+
     statuses = pd.Series([item["status"] for item in run["captures"]]).value_counts()
     run["status_counts"] = {str(key): int(value) for key, value in statuses.items()}
     run["asof_eligible_count"] = sum(
@@ -528,6 +620,7 @@ def main():
                         default=DEFAULT_FORWARD_CONFIG)
     parser.add_argument("--now", help="test/recovery clock with timezone")
     parser.add_argument("--enable-eltdx-shadow", action="store_true")
+    parser.add_argument("--enable-lhb-shadow", action="store_true")
     args = parser.parse_args()
     now = (datetime.fromisoformat(args.now).astimezone(SHANGHAI) if args.now
            else datetime.now(SHANGHAI))
@@ -535,7 +628,8 @@ def main():
     result = collect(
         trade_date=trade_date, phase=args.phase, output_dir=args.output_dir,
         paper_dir=args.paper_dir, now=now, forward_config=args.forward_config,
-        enable_eltdx_shadow=args.enable_eltdx_shadow)
+        enable_eltdx_shadow=args.enable_eltdx_shadow,
+        enable_lhb_shadow=args.enable_lhb_shadow)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

@@ -19,8 +19,10 @@
 `eltdx 3.2.3` 作为可选的通达信 F10 收盘事件侧车，保存涨停、炸板、跌停、
 连板高度和涨停原因，并与 AKShare 生成集合差异。它不是
 `shortline_forward_v1` 的必需数据集，失败不会阻断前瞻锚点、模拟盘或通知，
-任何字段也不会进入策略。现有接口仍没有经过验证的全市场竞价明细和题材原因
-历史流，因此：
+任何字段也不会进入策略。AKShare 龙虎榜明细和机构统计同样作为可选侧车，
+每日收盘归档，但至少滞后一个交易日才可用于研究特征；供应商给出的上榜后
+1/2/5/10 日收益和解读只保留在原始响应中，不进入标准化数据。现有接口仍没有
+经过验证的全市场竞价明细和题材原因历史流，因此：
 
 - 09:26 只保存全市场报价代理，并标记 `PROXY_NOT_EXACT_AUCTION_FEED`；
 - `所属行业` 保存为 `source_category_raw`，不能当作题材；
@@ -45,11 +47,12 @@
 
 流水线顺序为：行情与参考价快照、短线事件 shadow 快照、冻结的模拟盘策略、企业微信成交提醒。短线事件采集失败会记录 `shadow_error`，不会阻断冻结策略。
 
-`run_vcp_paper_pipeline.py` 默认请求 eltdx 侧车。独立运行采集器时需显式开启：
+`run_vcp_paper_pipeline.py` 默认请求 eltdx 和龙虎榜侧车。独立运行采集器时需
+显式开启：
 
 ```bash
 .venv/bin/python scripts/collect_shortline_events.py \
-  --phase close --enable-eltdx-shadow
+  --phase close --enable-eltdx-shadow --enable-lhb-shadow
 ```
 
 依赖由 `requirements.txt` 固定为 `eltdx==3.2.3`。该库及其上游数据仅按
@@ -72,6 +75,12 @@
       batch_id/
         provider_frame.json   # eltdx 原始行
         normalized.csv        # 仅同日成功采集时生成
+        metadata.json
+    stock_lhb_detail_em/
+    stock_lhb_jgmmtj_em/
+      batch_id/
+        provider_frame.json   # 包含完整供应商响应，仅用于审计
+        normalized.csv        # 排除解读和上榜后收益字段
         metadata.json
   _runs/YYYYMMDD/run_id.json
 ```
@@ -98,8 +107,8 @@
 - 规范化路径存在；
 - 只有 `FORWARD_CAPTURE + success + schema 完整` 可进入 as-of shadow；
 - 空响应、schema 漂移和请求失败没有被记成零事件。
-- `required_capture_count` 只统计五个 AKShare 锚点数据集；eltdx 单独计入
-  `optional_capture_count` 和 `optional_capture_status`；
+- `required_capture_count` 只统计五个 AKShare 锚点数据集；eltdx 与龙虎榜单独
+  计入 `optional_capture_count` 和 `optional_capture_status`；
 - `cross_source_comparisons` 只记录集合交集、Jaccard 和两侧独有代码，不能自动
   删除任一来源记录。
 

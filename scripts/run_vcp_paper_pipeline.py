@@ -101,6 +101,7 @@ def main():
             "--phase", "close", "--output-dir", str(args.shortline_dir),
             "--paper-dir", str(args.paper_dir),
             "--enable-eltdx-shadow",
+            "--enable-lhb-shadow",
         ]))
     else:
         shortline = {
