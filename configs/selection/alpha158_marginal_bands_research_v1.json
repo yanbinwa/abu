@@ -1,0 +1,24 @@
+{
+  "experiment_id": "alpha158_marginal_bands_research_v1",
+  "research_status": "DIAGNOSTIC_ONLY_NOT_ADMITTED",
+  "score_arms": [
+    "ridge",
+    "regression_trend",
+    "price_position",
+    "volume_structure",
+    "price_volume_persistence"
+  ],
+  "bands": [[1, 10], [11, 20], [21, 30], [31, 50]],
+  "round_trip_cost_bps": 75.0,
+  "block_length_sessions": 20,
+  "bootstrap_replicates": 2000,
+  "bootstrap_seed": 20261006,
+  "expansion_gate": {
+    "band": [11, 20],
+    "net_excess_mean_min": 0.0,
+    "net_excess_block_ci_low_min": 0.0,
+    "positive_year_net_excess_min_count": 3
+  },
+  "observed_history": true,
+  "new_holdout": false
+}

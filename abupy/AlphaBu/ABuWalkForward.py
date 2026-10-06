@@ -36,6 +36,12 @@ class WalkForwardFold:
     validation_end: int
     test_start: int
     test_end: int
+    label_horizon_sessions: int
+    additional_embargo_sessions: int
+    train_label_end: int
+    validation_label_end: int
+    train_to_validation_clear_sessions: int
+    validation_to_test_clear_sessions: int
 
 
 class PurgedWalkForward(object):
@@ -63,9 +69,14 @@ class PurgedWalkForward(object):
             if not len(test_dates):
                 continue
             test_start_position = calendar_position[int(test_dates[0])]
+            # A signal at position t owns outcomes through
+            # t + label_horizon_sessions (inclusive).  Therefore the latest
+            # admissible signal must end strictly before the next segment.
+            # embargo_sessions denotes additional clear sessions after the
+            # label has ended; it is not the label purge itself.
             validation_cutoff = (test_start_position -
                                  cfg.label_horizon_sessions -
-                                 cfg.embargo_sessions)
+                                 cfg.embargo_sessions - 1)
             validation_candidates = np.array([
                 value for value in unique[:test_offset]
                 if calendar_position[int(value)] <= validation_cutoff
@@ -77,7 +88,7 @@ class PurgedWalkForward(object):
                 int(validation_dates[0])]
             train_cutoff = (validation_start_position -
                             cfg.label_horizon_sessions -
-                            cfg.embargo_sessions)
+                            cfg.embargo_sessions - 1)
             train_dates = np.array([
                 value for value in unique
                 if calendar_position[int(value)] <= train_cutoff
@@ -91,6 +102,24 @@ class PurgedWalkForward(object):
             if not (len(train_indices) and len(validation_indices) and
                     len(test_indices)):
                 continue
+            train_end_position = calendar_position[int(train_dates[-1])]
+            validation_end_position = calendar_position[
+                int(validation_dates[-1])]
+            train_label_end_position = (
+                train_end_position + cfg.label_horizon_sessions)
+            validation_label_end_position = (
+                validation_end_position + cfg.label_horizon_sessions)
+            if not train_label_end_position < validation_start_position:
+                raise AssertionError("training label overlaps validation")
+            if not validation_label_end_position < test_start_position:
+                raise AssertionError("validation label overlaps test")
+            train_clear = (
+                validation_start_position - train_label_end_position - 1)
+            validation_clear = (
+                test_start_position - validation_label_end_position - 1)
+            if train_clear < cfg.embargo_sessions or \
+                    validation_clear < cfg.embargo_sessions:
+                raise AssertionError("walk-forward embargo is incomplete")
             yield WalkForwardFold(
                 fold=fold_number,
                 train_indices=train_indices,
@@ -100,6 +129,13 @@ class PurgedWalkForward(object):
                 validation_start=int(validation_dates[0]),
                 validation_end=int(validation_dates[-1]),
                 test_start=int(test_dates[0]), test_end=int(test_dates[-1]),
+                label_horizon_sessions=int(cfg.label_horizon_sessions),
+                additional_embargo_sessions=int(cfg.embargo_sessions),
+                train_label_end=int(
+                    calendar_dates[train_label_end_position]),
+                validation_label_end=int(
+                    calendar_dates[validation_label_end_position]),
+                train_to_validation_clear_sessions=int(train_clear),
+                validation_to_test_clear_sessions=int(validation_clear),
             )
             fold_number += 1
-

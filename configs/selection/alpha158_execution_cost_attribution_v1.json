@@ -1,0 +1,12 @@
+{
+  "config_version": "alpha158_execution_cost_attribution_v1",
+  "source_backtest": "/Users/wjy/abu/backtests/alpha158_current_best_2020_2026_20261006/backtest",
+  "initial_cash": 1000000.0,
+  "broker_rate": 0.00025,
+  "minimum_commission": 5.0,
+  "notional_buckets": [0.0, 5000.0, 10000.0, 20000.0, 1e100],
+  "bucket_labels": ["<5k", "5k-10k", "10k-20k", ">=20k"],
+  "small_entry_equity_fraction": 0.005,
+  "method": "Read-only attribution. The 20k boundary is minimum_commission / broker_rate and is fixed before looking at trade returns. No order is removed and no threshold is selected from performance.",
+  "automatic_strategy_change": false
+}

@@ -1,0 +1,19 @@
+{
+  "config_version": "fundamental_full_market_quality_v1",
+  "merged_root": "/Users/wjy/abu/data/selection_research/fundamental_full_market_merged_20261006_v1",
+  "required_fields": [
+    "TOTAL_OPERATE_INCOME",
+    "OPERATE_COST",
+    "PARENT_NETPROFIT",
+    "NETCASH_OPERATE",
+    "CONSTRUCT_LONG_ASSET",
+    "TOTAL_ASSETS",
+    "TOTAL_LIABILITIES",
+    "TOTAL_PARENT_EQUITY",
+    "SHARE_CAPITAL"
+  ],
+  "strict_positive_fields": ["TOTAL_ASSETS", "SHARE_CAPITAL"],
+  "historical_revision_versions_required": true,
+  "forward_snapshot_available_no_earlier_than_ingestion": true,
+  "automatic_strategy_use": false
+}

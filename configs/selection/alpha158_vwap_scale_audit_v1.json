@@ -1,0 +1,19 @@
+{
+  "audit_id": "alpha158_vwap_scale_audit_v1",
+  "role": "DATA_SCALE_AND_COVERAGE_AUDIT_ONLY",
+  "start_date": 20200101,
+  "end_date": 20260930,
+  "unit_multiplier_candidates": [0.01, 0.1, 1.0, 10.0, 100.0],
+  "raw_range_tolerance_bps": 100.0,
+  "adjusted_range_tolerance_bps": 100.0,
+  "candidate_inside_range_fraction_min": 0.99,
+  "candidate_median_close_ratio_min": 0.98,
+  "candidate_median_close_ratio_max": 1.02,
+  "overall_amount_coverage_min": 0.95,
+  "annual_amount_coverage_min": 0.94,
+  "adjusted_inside_range_fraction_min": 0.99,
+  "adjustment_change_threshold": 0.005,
+  "adjustment_change_inside_range_fraction_min": 0.99,
+  "missing_amount_policy": "fail_closed_per_security_session",
+  "factor_admission": "prohibited_by_this_audit"
+}

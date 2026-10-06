@@ -1,0 +1,63 @@
+{
+  "experiment_id": "alpha158_canonical_families_research_v3",
+  "research_status": "OBSERVED_HISTORY_AUDIT_ONLY_NOT_ADMITTED",
+  "source_strategy_version": "alpha158_lite_v1",
+  "model": "median_imputer_plus_ridge_alpha_100",
+  "families": [
+    "regression_trend",
+    "price_position",
+    "volume_structure",
+    "price_volume_persistence",
+    "kbar_shape"
+  ],
+  "canonical_windows": [5, 10, 20, 30, 60],
+  "normalization": "same_day_centered_percentile_rank",
+  "missing_window_policy": "minimum_80_percent_observations_else_nan",
+  "walk_forward": {
+    "start_date": 20220101,
+    "end_date": 20260930,
+    "minimum_train_dates": 252,
+    "validation_dates": 63,
+    "test_dates": 63,
+    "label_horizon_sessions": 20,
+    "embargo_sessions": 0,
+    "boundary_semantics": "label_end_strictly_before_next_segment; embargo_is_additional_clear_sessions",
+    "training_date_stride": 5
+  },
+  "familywise_testing": {
+    "primary_metric": "paired_oos_rank_ic_delta",
+    "alternative": "mean_delta_greater_than_zero",
+    "p_value_method": "centered_circular_moving_block_bootstrap",
+    "block_length_sessions": 20,
+    "bootstrap_replicates": 5000,
+    "bootstrap_seed": 20261006,
+    "correction": "benjamini_hochberg",
+    "fdr_q_max": 0.10,
+    "secondary_metrics_are_sequential_gates": true,
+    "feature_or_window_selection_after_results": "prohibited",
+    "result_suffix_by_family": {
+      "regression_trend": "v2_20261006",
+      "price_position": "v2_20261006",
+      "volume_structure": "v2_20261006",
+      "price_volume_persistence": "v2_20261006",
+      "kbar_shape": "v3_20261006"
+    }
+  },
+  "portfolio": {
+    "construction": "alpha158_price_only_no_rank_exit_v1",
+    "score_depth": 100,
+    "slippage_bps": 25.0
+  },
+  "gates": {
+    "paired_ic_delta_block_ci_low_min": 0.0,
+    "top10_uplift_delta_min": 0.0,
+    "top10_uplift_delta_block_ci_low_min": 0.0,
+    "positive_year_ic_delta_min_count": 3,
+    "portfolio_return_delta_pct_points_min": 0.5,
+    "max_drawdown_worsening_limit_pct_points": 1.0,
+    "liquidation_return_delta_pct_points_min": 0.0
+  },
+  "parameter_search_performed": false,
+  "observed_history": true,
+  "new_holdout": false
+}

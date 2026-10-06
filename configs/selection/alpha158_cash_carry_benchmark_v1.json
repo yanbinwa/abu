@@ -1,0 +1,9 @@
+{
+  "config_version": "alpha158_cash_carry_benchmark_v1",
+  "source_daily_nav": "/Users/wjy/abu/backtests/alpha158_current_best_2020_2026_20261006/backtest/daily_nav.csv",
+  "annual_cash_yield_scenarios_pct": [0.0, 1.0, 1.5, 2.0],
+  "day_count": 365.0,
+  "method": "Frozen-path gross cash-carry sensitivity. Interest accrues over calendar days on prior-session cash plus previously accrued carry. Orders, position sizes and fills are unchanged.",
+  "automatic_strategy_change": false,
+  "status": "USER_MANAGED_EXCLUDED_FROM_STOCK_STRATEGY_EVALUATION"
+}

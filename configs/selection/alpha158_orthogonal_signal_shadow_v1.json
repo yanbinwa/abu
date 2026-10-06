@@ -1,0 +1,29 @@
+{
+  "version": "alpha158_orthogonal_signal_shadow_v1",
+  "fundamental_quality_root": "/Users/wjy/abu/data/selection_research/fundamental_full_market_quality_20261006_v1",
+  "merged_fundamental_root": "/Users/wjy/abu/data/selection_research/fundamental_full_market_merged_20261006_v1",
+  "industry_strength_file": "/Users/wjy/abu/data/selection_research/shortline_features/m0a/industry_strength_daily.csv.gz",
+  "industry_features": [
+    "excess_return_20d_vs_market_rank",
+    "breadth_above_ma20_rank",
+    "breadth_above_ma60_rank",
+    "amount_expansion_rank"
+  ],
+  "financial_features": [
+    "return_on_parent_equity_cumulative",
+    "operating_margin_cumulative",
+    "operating_cash_conversion_cumulative",
+    "liability_to_asset",
+    "revenue_yoy_symmetric",
+    "parent_net_profit_yoy_symmetric",
+    "capital_expenditure_to_operating_cash"
+  ],
+  "families": {
+    "industry_context": "FORWARD_SHADOW_ONLY_HISTORICAL_STABILITY_FAILED",
+    "financial_quality_growth": "FORWARD_SHADOW_ONLY_CURRENT_REVISION_SNAPSHOT",
+    "announcement_surprise": "BLOCKED_NO_CONSENSUS_AND_INCOMPLETE_REVISION_CHAIN"
+  },
+  "combine_with_alpha158": false,
+  "trade_or_filter": false,
+  "automatic_admission": false
+}

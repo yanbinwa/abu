@@ -53,6 +53,31 @@ def scores(panel,state):
 
 
 class ForwardShadowTest(unittest.TestCase):
+    def test_account_specific_risk_and_exit_mode_are_frozen(self):
+        panel,default_state=fixture()
+        baseline=RiskConfig()
+        released=replace(
+            baseline,
+            same_day_new_risk_fraction=baseline.portfolio_open_risk_fraction)
+        state=shadow.new_state(
+            truncate(panel,240),default_state['source'],
+            default_state['policy'],baseline,default_state['protocol'],
+            '2023-12-01T16:00:00+08:00',account_specs={
+                'current': {'ranking_exits': False,'risk': baseline},
+                'same_day_release': {
+                    'ranking_exits': False,'risk': released},
+            })
+        self.assertEqual(
+            state['accounts']['current']['risk'].same_day_new_risk_fraction,
+            baseline.same_day_new_risk_fraction)
+        self.assertEqual(
+            state['accounts']['same_day_release'][
+                'risk'].same_day_new_risk_fraction,
+            baseline.portfolio_open_risk_fraction)
+        self.assertFalse(state['accounts']['current']['ranking_exits'])
+        self.assertFalse(
+            state['accounts']['same_day_release']['ranking_exits'])
+
     def test_training_uses_strictly_mature_labels_without_parameter_search(self):
         panel,state=fixture()
         source=replace(state['source'],minimum_train_dates=2)

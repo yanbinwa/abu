@@ -1,0 +1,19 @@
+{
+  "version": "alpha158_forward_marginal_bands_v1",
+  "source_shadow_root": "/Users/wjy/abu/shadow/alpha158_same_day_risk_forward_v1",
+  "bands": [[1, 10], [11, 20], [21, 30], [31, 50]],
+  "label_horizon_sessions": 20,
+  "round_trip_cost_scenarios_bps": [75.0, 100.0, 125.0],
+  "primary_round_trip_cost_bps": 75.0,
+  "minimum_matured_signal_dates": 100,
+  "minimum_mean_securities_per_band": 9.5,
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20261006,
+  "nonoverlapping_cohort_sessions": 20,
+  "minimum_positive_cohort_fraction": 0.6,
+  "expansion_band": [11, 20],
+  "eligible_action": "SEPARATELY_REGISTERED_TARGET_15_PORTFOLIO_REPLAY_ONLY",
+  "automatic_target_position_increase": false,
+  "paper_or_live_admission": false
+}

@@ -283,6 +283,9 @@ def evaluate_factor(predictions, gates):
     uplift = base_uplift.merge(
         candidate_uplift, on="signal_asof", validate="one_to_one")
     uplift["uplift_delta"] = uplift.candidate_uplift-uplift.ridge_uplift
+    uplift_ci = moving_block_mean_interval(
+        uplift.uplift_delta, block_length=20, replicates=2000,
+        seed=20261006)
     paired["year"] = paired.signal_asof // 10000
     yearly = paired.groupby("year", sort=True).agg(
         dates=("ic_delta", "size"), ridge_mean_ic=("ridge_ic", "mean"),
@@ -292,6 +295,8 @@ def evaluate_factor(predictions, gates):
     passed = (
         ci[0] >= float(gates["paired_ic_delta_block_ci_low_min"]) and
         uplift.uplift_delta.mean() > float(gates["top10_uplift_delta_min"]) and
+        uplift_ci[0] >= float(gates.get(
+            "top10_uplift_delta_block_ci_low_min", -float("inf"))) and
         positive_years >= int(gates["positive_year_ic_delta_min_count"])
     )
     report = {
@@ -302,6 +307,8 @@ def evaluate_factor(predictions, gates):
         "ridge_top10_uplift_mean": float(uplift.ridge_uplift.mean()),
         "candidate_top10_uplift_mean": float(uplift.candidate_uplift.mean()),
         "top10_uplift_delta_mean": float(uplift.uplift_delta.mean()),
+        "top10_uplift_delta_block_ci": [
+            float(uplift_ci[0]), float(uplift_ci[1])],
         "positive_year_ic_delta_count": positive_years,
         "factor_gate": "PASS" if passed else "FAIL",
     }

@@ -136,9 +136,19 @@ def feature_scores(panel, source, model, minimum):
     return frame.reset_index(drop=True)
 
 
-def new_state(panel, source, policy, risk, protocol, registered_at):
+def new_state(panel, source, policy, risk, protocol, registered_at,
+              account_specs=None):
+    if account_specs is None:
+        account_specs = {
+            'baseline': {'ranking_exits': True, 'risk': risk},
+            'event_exit_only': {'ranking_exits': False, 'risk': risk},
+        }
+    if not account_specs:
+        raise ValueError('at least one shadow account is required')
     accounts = {}
-    for arm in ARMS:
+    for arm,spec in account_specs.items():
+        if set(spec) != {'ranking_exits','risk'}:
+            raise ValueError('account spec must freeze ranking_exits and risk')
         executor = PortfolioExecutor(panel,ExecutionConfig(
             initial_cash=protocol['initial_cash_per_account'],
             slippage_bps=protocol['primary_slippage_bps'],mode='pit_corrected',max_positions=10))
@@ -148,6 +158,7 @@ def new_state(panel, source, policy, risk, protocol, registered_at):
             if len(valid):
                 executor.last_close[col] = valid[-1]
         accounts[arm] = dict(executor=executor,exit_states={},entry_streak={},weak_streak={},
+            ranking_exits=bool(spec['ranking_exits']),risk=spec['risk'],
             intents={},entry_intents={},risk_decisions=[],exit_reasons=[])
     return dict(version=protocol['version'],registered_at=registered_at,
         historical_cutoff=int(panel.dates[-1]),last_processed_date=int(panel.dates[-1]),
@@ -308,9 +319,9 @@ def step_accounts(state,panel,scores,check_checkpoint=True):
         state['first_forward_date'] = date
     source,policy_config = state['source'],state['policy']
     features = Alpha158LiteFeatureEngine(panel,source)
-    risk = PortfolioRiskEngine(panel,state['risk'])
     daily = scores[scores.daily_rank <= policy_config.retention_rank_limit]
     for arm,account in state['accounts'].items():
+        risk = PortfolioRiskEngine(panel,account.get('risk',state['risk']))
         executor = account['executor']; executor.panel = panel
         exits = Alpha158LiteExitEngine(panel,source); exits.states = account['exit_states']
         policy = Alpha158LiteLowTurnoverPolicy(policy_config)
@@ -369,7 +380,7 @@ def step_accounts(state,panel,scores,check_checkpoint=True):
             holding_sessions = {s:day-exits.states[s].entry_day+1 for s in executor.positions}
             ranked_exits,entry_symbols = policy.review(daily,executor.positions,holding_sessions,
                                                        blocked_exits={s for s,_ in pending})
-            if arm == 'baseline':
+            if account.get('ranking_exits',arm == 'baseline'):
                 pending.extend((s,'PERSISTENT_RANK_EXIT') for s in ranked_exits)
         created = set()
         for symbol,reason in pending:

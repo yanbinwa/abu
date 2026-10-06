@@ -1,0 +1,21 @@
+{
+  "experiment_id": "alpha158_annual_uplift_challenge_v1",
+  "target_net_cagr_delta_pp": 1.0,
+  "hypothesis": "Proportional risk sizing without dynamic stop synchronization may improve stock-only net CAGR; it is increased risk exposure, not new stock-selection alpha.",
+  "risk_multipliers": [1.0, 2.0],
+  "scaled_fields": ["single_trade_risk_fraction", "portfolio_open_risk_fraction", "industry_open_risk_fraction", "same_day_new_risk_fraction"],
+  "primary_slippage_bps": [25.0, 40.0, 60.0],
+  "boundary_sensitivity_slippage_bps": [25.0],
+  "sync_dynamic_stops": false,
+  "max_drawdown_worsening_pp": 1.0,
+  "minimum_positive_years": 3,
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20261006,
+  "decision_rule": "All primary costs and the older-boundary sensitivity must gain at least 1pp net CAGR with no more than 1pp drawdown worsening; primary 25bp paired CAGR interval lower bound must exceed zero and at least 3 calendar slices must improve. Passing is only a historical screen.",
+  "observed_history": true,
+  "new_holdout": false,
+  "no_parameter_search_after_results": true,
+  "cash_interest": false,
+  "automatic_admission": false
+}

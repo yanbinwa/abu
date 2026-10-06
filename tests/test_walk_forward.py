@@ -28,16 +28,43 @@ class WalkForwardTest(unittest.TestCase):
         self.assertGreaterEqual(len(folds), 2)
         positions = {value: index for index, value in enumerate(calendar)}
         for fold in folds:
-            self.assertLessEqual(
-                positions[fold.train_end]+7, positions[fold.validation_start])
-            self.assertLessEqual(
-                positions[fold.validation_end]+7, positions[fold.test_start])
+            self.assertLess(
+                positions[fold.train_label_end],
+                positions[fold.validation_start])
+            self.assertLess(
+                positions[fold.validation_label_end],
+                positions[fold.test_start])
+            self.assertEqual(fold.label_horizon_sessions, 5)
+            self.assertEqual(fold.additional_embargo_sessions, 2)
+            self.assertGreaterEqual(
+                fold.train_to_validation_clear_sessions, 2)
+            self.assertGreaterEqual(
+                fold.validation_to_test_clear_sessions, 2)
             self.assertTrue(set(fold.train_indices).isdisjoint(
                 fold.validation_indices))
             self.assertTrue(set(fold.test_indices).isdisjoint(
                 fold.validation_indices))
         self.assertLessEqual(len(folds[0].train_indices),
                              len(folds[-1].train_indices))
+
+    def test_zero_additional_embargo_still_has_strict_label_purge(self):
+        calendar = pd.bdate_range("2024-01-02", periods=160).strftime(
+            "%Y%m%d").astype(int).to_numpy()
+        config = WalkForwardConfig(
+            minimum_train_dates=40, validation_dates=20, test_dates=20,
+            label_horizon_sessions=20, embargo_sessions=0)
+        folds = list(PurgedWalkForward(config).split(calendar, calendar))
+        self.assertTrue(folds)
+        positions = {value: index for index, value in enumerate(calendar)}
+        for fold in folds:
+            self.assertEqual(fold.train_to_validation_clear_sessions, 0)
+            self.assertEqual(fold.validation_to_test_clear_sessions, 0)
+            self.assertEqual(
+                positions[fold.train_label_end] + 1,
+                positions[fold.validation_start])
+            self.assertEqual(
+                positions[fold.validation_label_end] + 1,
+                positions[fold.test_start])
 
     def test_trial_registry_is_append_only_and_detects_tampering(self):
         with tempfile.TemporaryDirectory() as directory:

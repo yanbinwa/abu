@@ -1,0 +1,35 @@
+{
+  "experiment_id": "alpha158_same_day_risk_release_research_v1",
+  "research_status": "HISTORICAL_SCREEN_ONLY_NOT_ADMITTED",
+  "hypothesis": "The same-day-new-risk cap may reject otherwise acceptable clustered entries even when total portfolio, industry and stress risk remain within their frozen caps. Setting the same-day cap equal to the unchanged total open-risk cap tests entry staggering without increasing maximum portfolio open risk.",
+  "strategy_version": "alpha158_price_only_no_rank_exit_v1",
+  "candidate_count": 1,
+  "parameter_search": false,
+  "baseline_same_day_new_risk_fraction": 0.0075,
+  "candidate_same_day_new_risk_fraction": 0.02,
+  "unchanged_risk_fields": [
+    "single_trade_risk_fraction",
+    "portfolio_open_risk_fraction",
+    "industry_open_risk_fraction",
+    "max_symbol_weight",
+    "max_gross_exposure",
+    "max_amount_participation",
+    "max_stress_loss_fraction"
+  ],
+  "slippage_bps": [25.0, 40.0, 60.0],
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20261006,
+  "gates": {
+    "primary_25bp_cagr_delta_pp_min": 0.5,
+    "all_cost_cagr_delta_pp_min": 0.0,
+    "max_drawdown_worsening_pp_max": 1.0,
+    "liquidation_drawdown_worsening_pp_max": 1.0,
+    "primary_ci95_low_pp_min": 0.0,
+    "positive_years_min": 3
+  },
+  "observed_history": true,
+  "hypothesis_informed_by_observed_rejection_outcomes": true,
+  "new_holdout": false,
+  "automatic_admission": false
+}

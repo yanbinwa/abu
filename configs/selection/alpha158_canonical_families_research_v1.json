@@ -1,0 +1,41 @@
+{
+  "experiment_id": "alpha158_canonical_families_research_v1",
+  "research_status": "RESEARCH_ONLY_NOT_ADMITTED",
+  "source_strategy_version": "alpha158_lite_v1",
+  "model": "median_imputer_plus_ridge_alpha_100",
+  "families": [
+    "regression_trend",
+    "price_position",
+    "volume_structure",
+    "price_volume_persistence"
+  ],
+  "canonical_windows": [5, 10, 20, 30, 60],
+  "normalization": "same_day_centered_percentile_rank",
+  "missing_window_policy": "minimum_80_percent_observations_else_nan",
+  "walk_forward": {
+    "start_date": 20220101,
+    "end_date": 20260930,
+    "minimum_train_dates": 252,
+    "validation_dates": 63,
+    "test_dates": 63,
+    "label_horizon_sessions": 20,
+    "embargo_sessions": 0,
+    "training_date_stride": 5
+  },
+  "portfolio": {
+    "construction": "alpha158_price_only_no_rank_exit_v1",
+    "score_depth": 100,
+    "slippage_bps": 25.0
+  },
+  "gates": {
+    "paired_ic_delta_block_ci_low_min": 0.0,
+    "top10_uplift_delta_min": 0.0,
+    "positive_year_ic_delta_min_count": 3,
+    "portfolio_return_delta_pct_points_min": 0.0,
+    "max_drawdown_worsening_limit_pct_points": 1.0,
+    "liquidation_return_delta_pct_points_min": 0.0
+  },
+  "parameter_search_performed": false,
+  "observed_history": true,
+  "new_holdout": false
+}
