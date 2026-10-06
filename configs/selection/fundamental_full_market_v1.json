@@ -1,0 +1,21 @@
+{
+  "config_version": "fundamental_full_market_v1",
+  "adapter_version": "akshare_1.18.21_eastmoney_structured_snapshot_v1",
+  "source_role": "primary_numeric_candidate",
+  "security_master": "/Users/wjy/abu/data/selection_research/security_master.csv",
+  "raw_root": "/Users/wjy/abu/data/selection_research/fundamental_full_market_raw",
+  "trading_sessions_source": "/Users/wjy/abu/data/csv/sh000300_20061002_20261002",
+  "minimum_history_sessions": 252,
+  "history_start_date": "2020-01-01",
+  "history_end_date": "2026-09-30",
+  "chunk_size": 10,
+  "max_concurrency": 1,
+  "validation_sample_size": 20,
+  "required_statements": ["income", "balance", "cashflow"],
+  "strict_rules": {
+    "statement_symbol_coverage_min": 0.995,
+    "required_field_symbol_coverage_min": 0.8,
+    "historical_revision_versions_required": true
+  },
+  "research_label": "RESEARCH_ONLY / NOT_FOR_LIVE_TRADING"
+}
