@@ -1,0 +1,41 @@
+{
+  "schema_version": "alpha158_ml_experiment_v1",
+  "experiment_id": "alpha158_all_mean_ml_combiner_v1",
+  "experiment_family_id": "alpha158_seven_family_score_combiner_v1",
+  "experiment_type": "score_combiner",
+  "strategy_adapter": "all_mean_rank_seven_family_v1",
+  "baseline_arm_id": "all_mean_rank_a0",
+  "candidate_arm_ids": ["all_mean_rank_a1"],
+  "baseline_model": "equal_weight_combiner_v1",
+  "candidate_models": ["simplex_combiner_v1"],
+  "feature_view_id": "alpha158_seven_family_oos_rank_v1",
+  "label_contract_id": "alpha158_lite_excess20_v1",
+  "walk_forward": {
+    "minimum_train_dates": 252,
+    "validation_dates": 63,
+    "test_dates": 63,
+    "label_horizon_sessions": 20,
+    "embargo_sessions": 0,
+    "train_date_step": 5
+  },
+  "parameter_budget": {
+    "candidate_count": 1,
+    "post_result_expansion_allowed": false
+  },
+  "portfolio_policy_id": "alpha158_price_only_no_rank_exit_v1",
+  "execution_policy_id": "pit_corrected",
+  "risk_policy_id": "risk_v1",
+  "cost_scenarios": [
+    {"id": "25bp", "slippage_bp_per_side": 25, "fees_separate": true},
+    {"id": "40bp", "slippage_bp_per_side": 40, "fees_separate": true},
+    {"id": "60bp", "slippage_bp_per_side": 60, "fees_separate": true}
+  ],
+  "decision_gates": {
+    "minimum_annualized_uplift_pp": 0.5,
+    "bootstrap_primary_block_sessions": 20,
+    "bootstrap_diagnostic_blocks_sessions": [40, 60],
+    "bootstrap_paths": 5000,
+    "top5_positive_profit_share_max": 0.5
+  },
+  "output_root": "backtests/alpha158_all_mean_ml_combiner_v1"
+}
