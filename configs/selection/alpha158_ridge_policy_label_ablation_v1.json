@@ -1,0 +1,35 @@
+{
+  "schema_version": "alpha158_label_ablation_v1",
+  "experiment_id": "alpha158_ridge_policy_label_ablation_v1",
+  "experiment_family_id": "alpha158_policy_aligned_label_v1",
+  "experiment_type": "label_ablation",
+  "baseline_arm_id": "ridge_excess20_common_v1",
+  "candidate_arm_id": "ridge_event_r60_v1",
+  "feature_view_id": "alpha158_lite_26f_v1",
+  "baseline_label_id": "alpha158_lite_excess20_v1",
+  "candidate_label_id": "alpha158_event_exit_r60_v1",
+  "common_training_rows": true,
+  "ridge_alpha": 100.0,
+  "walk_forward": {
+    "signal_start": 20120101,
+    "signal_end": 20260930,
+    "minimum_train_dates": 252,
+    "validation_dates": 63,
+    "test_dates": 63,
+    "label_horizon_sessions": 61,
+    "embargo_sessions": 0,
+    "train_date_step": 5
+  },
+  "event_label_cost_bps_per_side": 25.0,
+  "cost_scenarios_bps_per_side": [25, 40, 60],
+  "decision_gates": {
+    "minimum_annualized_uplift_pp": 0.5,
+    "top5_positive_profit_share_max": 0.5,
+    "bootstrap_paths": 5000,
+    "bootstrap_seed": 20261007,
+    "primary_block_sessions": 20,
+    "diagnostic_block_sessions": [40, 60]
+  },
+  "historical_evidence_only": true,
+  "automatic_strategy_replacement": false
+}

@@ -173,6 +173,81 @@ class Alpha158PolicyLabelBuilder(object):
             "event_path_holding_sessions_60d": 60,
         }
 
+    def _event_paths_vectorized(self, entry_day, columns, entry_adjusted,
+                                initial_stop_adjusted, initial_r, executable):
+        """Advance one signal-date cross-section with the same state machine."""
+        count = len(columns)
+        event_r = np.full(count, np.nan, dtype=float)
+        event_reason = np.full(count, None, dtype=object)
+        event_end = np.full(count, np.nan, dtype=float)
+        holding = np.full(count, np.nan, dtype=float)
+        peak = np.asarray(entry_adjusted, dtype=float).copy()
+        current_stop = np.asarray(initial_stop_adjusted, dtype=float).copy()
+        trailing = np.zeros(count, dtype=bool)
+        active = np.asarray(executable, dtype=bool).copy()
+        pending = np.zeros(count, dtype=bool)
+        pending_reason = np.full(count, None, dtype=object)
+        last_decision = entry_day+self.config.maximum_holding_sessions-1
+        fixed_maturity_day = entry_day+self.config.maximum_holding_sessions
+
+        for path_day in range(entry_day, fixed_maturity_day+1):
+            for position in np.flatnonzero(pending):
+                exit_adjusted = self._sell_fill(
+                    path_day, int(columns[position]))
+                if exit_adjusted is None:
+                    continue
+                event_r[position] = (
+                    exit_adjusted-entry_adjusted[position])/initial_r[position]
+                event_reason[position] = pending_reason[position]
+                event_end[position] = int(self.panel.dates[path_day])
+                holding[position] = path_day-entry_day+1
+                pending[position] = False
+                active[position] = False
+            if path_day > last_decision:
+                break
+            evaluating = active & ~pending
+            close = np.asarray(
+                self.panel.close[path_day, columns], dtype=float)
+            valid = evaluating & np.isfinite(close)
+            peak[valid] = np.maximum(peak[valid], close[valid])
+            mfe = peak-entry_adjusted
+            trailing |= valid & (
+                mfe >= self.strategy.trailing_activation_r*initial_r)
+            atr = np.asarray(self.panel.atr21[path_day, columns], dtype=float)
+            update_stop = valid & trailing & np.isfinite(atr)
+            current_stop[update_stop] = np.maximum(
+                current_stop[update_stop],
+                peak[update_stop]-self.strategy.trailing_atr_multiple *
+                atr[update_stop])
+            held = path_day-entry_day+1
+            initial_hit = valid & (close <= initial_stop_adjusted)
+            trailing_hit = (
+                valid & ~initial_hit & trailing & (close <= current_stop))
+            stagnation_hit = (
+                valid & ~initial_hit & ~trailing_hit &
+                (held >= self.strategy.stagnation_sessions) &
+                (mfe < self.strategy.stagnation_mfe_r*initial_r))
+            for mask, reason in (
+                    (initial_hit, "INITIAL_STOP"),
+                    (trailing_hit, "TRAILING_STOP"),
+                    (stagnation_hit, "STAGNATION")):
+                pending[mask] = True
+                pending_reason[mask] = reason
+
+        event_reason[pending] = "EXIT_PENDING_AT_HORIZON"
+        remaining = active & ~pending
+        terminal = np.asarray(
+            self.panel.close[last_decision, columns], dtype=float)
+        marked = remaining & np.isfinite(terminal)
+        event_r[marked] = (
+            terminal[marked]-entry_adjusted[marked])/initial_r[marked]
+        event_reason[marked] = "TIME_MARK_60"
+        event_end[marked] = int(self.panel.dates[last_decision])
+        holding[marked] = self.config.maximum_holding_sessions
+        missing = remaining & ~np.isfinite(terminal)
+        event_reason[missing] = "MISSING_TERMINAL_MARK"
+        return event_r, event_reason, event_end, holding
+
     def build_day(self, day, columns=None):
         day = int(day)
         entry_day = day+1
@@ -182,9 +257,8 @@ class Alpha158PolicyLabelBuilder(object):
         if columns is None:
             columns = np.flatnonzero(self.features.eligible(day))
         columns = np.asarray(columns, dtype=int)
-        rows = []
         if not len(columns):
-            return pd.DataFrame(rows)
+            return pd.DataFrame()
         adjusted_close = np.asarray(self.panel.close[day, columns], float)
         raw_close = np.asarray(self.panel.exec_close[day, columns], float)
         atr = np.asarray(self.panel.atr21[day, columns], float)
@@ -202,38 +276,30 @@ class Alpha158PolicyLabelBuilder(object):
             base_executable & np.isfinite(stop_adjusted) &
             (stop_adjusted > 0) & np.isfinite(initial_r) & (initial_r > 0) &
             (fill_raw > stop_raw+1e-12))
-        for position, column in enumerate(columns):
-            reason = "ELIGIBLE"
-            if not base_executable[position]:
-                reason = "ENTRY_NOT_EXECUTABLE"
-            elif not executable[position]:
-                reason = "STOP_INVALIDATED"
-            row = {
-                "signal_asof": int(self.panel.dates[day]),
-                "symbol": str(self.panel.symbols[column]),
-                "column": int(column),
-                "entry_date": int(self.panel.dates[entry_day]),
-                "entry_executable": bool(executable[position]),
-                "entry_reason": reason,
-                "entry_fill_raw": (float(fill_raw[position])
-                                   if executable[position] else np.nan),
-                "initial_stop_raw": (float(stop_raw[position])
-                                     if executable[position] else np.nan),
-                "initial_r_adjusted": (float(initial_r[position])
-                                       if executable[position] else np.nan),
-                "event_path_r_60d": np.nan,
-                "event_path_reason_60d": None,
-                "event_path_end_date_60d": np.nan,
-                "event_path_holding_sessions_60d": np.nan,
-                "label_fully_mature_date": int(
-                    self.panel.dates[maturity_day]),
-                "label_version": self.config.label_version,
-                "label_config_sha256": self.config_sha256,
-            }
-            if executable[position]:
-                row.update(self._event_path(
-                    entry_day, int(column), float(fill_adjusted[position]),
-                    float(stop_adjusted[position]), float(initial_r[position])))
-            rows.append(row)
-        return pd.DataFrame(rows).sort_values(
+        event_r, event_reason, event_end, holding = \
+            self._event_paths_vectorized(
+                entry_day, columns, fill_adjusted, stop_adjusted,
+                initial_r, executable)
+        entry_reason = np.full(len(columns), "ELIGIBLE", dtype=object)
+        entry_reason[~base_executable] = "ENTRY_NOT_EXECUTABLE"
+        entry_reason[base_executable & ~executable] = "STOP_INVALIDATED"
+        result = pd.DataFrame({
+            "signal_asof": int(self.panel.dates[day]),
+            "symbol": [str(self.panel.symbols[column]) for column in columns],
+            "column": columns,
+            "entry_date": int(self.panel.dates[entry_day]),
+            "entry_executable": executable,
+            "entry_reason": entry_reason,
+            "entry_fill_raw": np.where(executable, fill_raw, np.nan),
+            "initial_stop_raw": np.where(executable, stop_raw, np.nan),
+            "initial_r_adjusted": np.where(executable, initial_r, np.nan),
+            "event_path_r_60d": event_r,
+            "event_path_reason_60d": event_reason,
+            "event_path_end_date_60d": event_end,
+            "event_path_holding_sessions_60d": holding,
+            "label_fully_mature_date": int(self.panel.dates[maturity_day]),
+            "label_version": self.config.label_version,
+            "label_config_sha256": self.config_sha256,
+        })
+        return result.sort_values(
             ["signal_asof", "symbol"], kind="mergesort").reset_index(drop=True)
