@@ -1,0 +1,34 @@
+{
+  "experiment_id": "alpha158_causal_family_weight_v1",
+  "research_status": "PREREGISTERED_CAUSAL_RETROSPECTIVE_NOT_ADMISSIBLE",
+  "families": [
+    "regression_trend",
+    "price_position",
+    "volume_structure",
+    "price_volume_persistence",
+    "kbar_shape",
+    "vwap_price",
+    "residual_overheat"
+  ],
+  "weight_signal": "rolling_mean_daily_rank_ic",
+  "label_embargo_sessions": 21,
+  "weight_lookback_sessions": 252,
+  "minimum_weight_history_sessions": 126,
+  "uniform_shrinkage": 0.5,
+  "negative_family_weight": 0.0,
+  "fallback": "equal_weight",
+  "target_positions": 10,
+  "portfolio_open_risk_fraction": 0.02,
+  "costs_bps": [25.0, 40.0, 60.0],
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "parameter_search_performed": false,
+  "family_selection_performed": false,
+  "automatic_admission": false,
+  "notes": [
+    "All seven families remain active at every date.",
+    "A date's forward label cannot influence weights until after the 21-session embargo.",
+    "Half of every date's weight remains uniform to limit estimation noise.",
+    "All history has been observed, so favorable results require forward shadow validation."
+  ]
+}
