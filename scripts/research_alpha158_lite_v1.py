@@ -138,7 +138,8 @@ def factor_diagnostics(frame, features=ALPHA158_LITE_FEATURES,
     return daily, summary
 
 
-def walk_forward_predictions(engine, signal_days, split_config, output_dir):
+def walk_forward_predictions(engine, signal_days, split_config, output_dir,
+                             model_factory=Alpha158LiteModel):
     signal_days = np.asarray(signal_days, dtype=int)
     signal_dates = engine.panel.dates[signal_days]
     splitter = PurgedWalkForward(split_config)
@@ -156,7 +157,7 @@ def walk_forward_predictions(engine, signal_days, split_config, output_dir):
                 training_cache[day] = engine.snapshot(day, include_labels=True)
             train_frames.append(training_cache[day])
         training = pd.concat(train_frames, ignore_index=True)
-        model = Alpha158LiteModel(config).fit(
+        model = model_factory(config).fit(
             training, engine.panel.dates[train_days])
         manifest = dict(model.manifest)
         manifest.update({
