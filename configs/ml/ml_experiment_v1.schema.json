@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alpha158_ml_experiment_v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "experiment_id", "experiment_family_id",
+    "experiment_type", "strategy_adapter", "baseline_arm_id",
+    "candidate_arm_ids", "baseline_model", "candidate_models",
+    "feature_view_id", "label_contract_id", "walk_forward",
+    "parameter_budget", "portfolio_policy_id", "execution_policy_id",
+    "risk_policy_id", "cost_scenarios", "decision_gates", "output_root"
+  ],
+  "properties": {
+    "schema_version": {"const": "alpha158_ml_experiment_v1"},
+    "experiment_id": {"type": "string", "minLength": 1},
+    "experiment_family_id": {"type": "string", "minLength": 1},
+    "experiment_type": {"enum": ["score_replacement", "score_combiner"]},
+    "strategy_adapter": {"type": "string", "minLength": 1},
+    "baseline_arm_id": {"type": "string", "minLength": 1},
+    "candidate_arm_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "baseline_model": {"type": "string", "minLength": 1},
+    "candidate_models": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "feature_view_id": {"type": "string", "minLength": 1},
+    "label_contract_id": {"const": "alpha158_lite_excess20_v1"},
+    "walk_forward": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_train_dates", "validation_dates", "test_dates", "label_horizon_sessions", "embargo_sessions", "train_date_step"],
+      "properties": {
+        "minimum_train_dates": {"type": "integer", "minimum": 1},
+        "validation_dates": {"type": "integer", "minimum": 1},
+        "test_dates": {"type": "integer", "minimum": 1},
+        "label_horizon_sessions": {"const": 20},
+        "embargo_sessions": {"const": 0},
+        "train_date_step": {"const": 5}
+      }
+    },
+    "parameter_budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate_count", "post_result_expansion_allowed"],
+      "properties": {
+        "candidate_count": {"type": "integer", "minimum": 1},
+        "post_result_expansion_allowed": {"const": false}
+      }
+    },
+    "portfolio_policy_id": {"type": "string", "minLength": 1},
+    "execution_policy_id": {"const": "pit_corrected"},
+    "risk_policy_id": {"type": "string", "minLength": 1},
+    "cost_scenarios": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "slippage_bp_per_side", "fees_separate"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "slippage_bp_per_side": {"enum": [25, 40, 60]},
+          "fees_separate": {"const": true}
+        }
+      }
+    },
+    "decision_gates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["minimum_annualized_uplift_pp", "bootstrap_primary_block_sessions", "bootstrap_diagnostic_blocks_sessions", "bootstrap_paths", "top5_positive_profit_share_max"],
+      "properties": {
+        "minimum_annualized_uplift_pp": {"const": 0.5},
+        "bootstrap_primary_block_sessions": {"const": 20},
+        "bootstrap_diagnostic_blocks_sessions": {"const": [40, 60]},
+        "bootstrap_paths": {"const": 5000},
+        "top5_positive_profit_share_max": {"const": 0.5}
+      }
+    },
+    "output_root": {"type": "string", "minLength": 1}
+  }
+}

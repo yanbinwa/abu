@@ -20,5 +20,7 @@ akshare==1.18.21
 baostock==0.9.4
 APScheduler==3.11.3
 jsonschema==4.26.0
+# ML research only; macOS 12 arm64 wheel SHA256 is frozen in configs/ml/environment_v1.json.
+lightgbm==4.6.0
 # Research-only TDX F10 adapter; never a required paper-trading source.
 eltdx==3.2.3
