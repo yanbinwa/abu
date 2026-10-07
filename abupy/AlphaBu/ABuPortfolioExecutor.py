@@ -446,6 +446,19 @@ class PortfolioExecutor(object):
                 self.orders = [item for item in self.orders
                                if item.order_id != order.order_id]
 
+        if order.initial_stop_raw is not None and \
+                price <= float(order.initial_stop_raw) + 1e-12:
+            self._release(order)
+            consume_pending()
+            return self._record_unfilled(
+                order, day, "rejected", "STOP_INVALIDATED", rule_id,
+                limit_model, reference_quality, limit_reasons,
+                execution_policy_id=execution_policy_id,
+                decision_at=decision_at, trigger_bar_end=trigger_bar_end,
+                candidate_bar_start=candidate_bar_start,
+                data_source=data_source, data_revision=data_revision,
+                available_at=available_at)
+
         effect = order.position_effect or "OPEN"
         if effect == "INCREASE":
             trade = self.position_ledger.logical_trades.get(order.target_trade_id)

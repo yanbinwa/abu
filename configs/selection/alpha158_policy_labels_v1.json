@@ -1,0 +1,8 @@
+{
+  "label_version": "alpha158_event_exit_r60_v1",
+  "maximum_holding_sessions": 60,
+  "entry_slippage_bps": 25.0,
+  "exit_slippage_bps": 25.0,
+  "target_kind": "gross_price_r",
+  "maturity_policy": "fixed_signal_plus_61_sessions"
+}

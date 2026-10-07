@@ -111,6 +111,33 @@ class PortfolioExecutorTest(unittest.TestCase):
         self.assertNotIn(order, executor.orders)
         self.assertIn(order.symbol, executor.positions)
 
+    def test_d0_rejects_buy_when_fill_does_not_clear_initial_stop(self):
+        executor = make_executor()
+        order, _ = executor.approve_order(
+            intent(suffix="stop-invalid-d0", stop=10.1), 100,
+            20250103, 10.5, 0.4)
+        fill = executor.process_open(1)[0]
+        self.assertEqual("rejected", fill.status)
+        self.assertEqual("STOP_INVALIDATED", fill.reason_code)
+        self.assertEqual(0, executor.reserved_cash)
+        self.assertNotIn(order, executor.orders)
+        self.assertNotIn(order.symbol, executor.positions)
+
+    def test_external_fill_defensively_rejects_invalidated_stop(self):
+        executor = make_executor()
+        order, _ = executor.approve_order(
+            intent(suffix="stop-invalid-m1", stop=10.1), 100,
+            20250103, 10.5, 0.4)
+        fill = executor.apply_buy_fill(
+            order, 1, reference_price=10.0, fill_price_raw=10.0,
+            execution_policy_id="M1", decision_at="2025-01-03T09:36:00+08:00")
+        self.assertEqual("rejected", fill.status)
+        self.assertEqual("STOP_INVALIDATED", fill.reason_code)
+        self.assertEqual("M1", fill.execution_policy_id)
+        self.assertEqual(0, executor.reserved_cash)
+        self.assertNotIn(order, executor.orders)
+        self.assertNotIn(order.symbol, executor.positions)
+
     def test_session_start_is_idempotent(self):
         executor = make_executor()
         executor._cash_receivables[1] = [{
