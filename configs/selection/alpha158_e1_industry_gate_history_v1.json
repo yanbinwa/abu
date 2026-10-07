@@ -1,0 +1,46 @@
+{
+  "experiment_id": "alpha158_e1_industry_gate_history_v1",
+  "research_status": "PREREGISTERED_RETROSPECTIVE_NOT_ADMITTED",
+  "selection_model": "frozen_all_mean_rank_equal_weight_seven_families",
+  "base_exit": "initial_stop_plus_3atr_trailing_plus_stagnation",
+  "panel_start_date": 20110101,
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "primary_holdout": {
+    "start_date": 20150101,
+    "end_date": 20191231
+  },
+  "secondary_observed_history": {
+    "start_date": 20200101,
+    "end_date": 20260930
+  },
+  "costs_bps": [25.0, 40.0, 60.0],
+  "arms": {
+    "A0_frozen": "frozen all_mean_rank with event exits only",
+    "E1_market_entry_gate": "block next-session entries after a frozen market absolute-risk event",
+    "I1_industry_relative_gate": "require raw stock 20-session return minus same-day industry mean to be at least -5 percentage points"
+  },
+  "industry_minimum_excess": -0.05,
+  "parameter_search_allowed": false,
+  "event_threshold_search_allowed": false,
+  "industry_threshold_search_allowed": false,
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20152026,
+  "gates": {
+    "primary_return_delta_positive": true,
+    "primary_max_drawdown_not_worse": true,
+    "primary_expected_shortfall_not_worse": true,
+    "primary_cagr_delta_ci95_low_min": 0.0,
+    "full_return_delta_positive_all_costs": true,
+    "full_max_drawdown_not_worse_all_costs": true,
+    "positive_calendar_year_delta_min_count": 7
+  },
+  "automatic_admission": false,
+  "notes": [
+    "E1 reuses and verifies the completed frozen 2015-2026 run rather than rerunning identical orders.",
+    "I1 keeps the -5 percentage point rule registered in the earlier 2024-2025 study; no threshold is searched here.",
+    "The industry cross-section is the strict-PIT Shenzhen research universe, not the full Shanghai-Shenzhen market.",
+    "Financial factors are excluded from the primary result."
+  ]
+}
