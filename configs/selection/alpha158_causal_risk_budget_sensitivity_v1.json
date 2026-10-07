@@ -1,0 +1,30 @@
+{
+  "experiment_id": "alpha158_causal_risk_budget_sensitivity_v1",
+  "research_status": "PREREGISTERED_STRUCTURAL_SENSITIVITY_NOT_ADMISSIBLE",
+  "score": "frozen_causal_family_rank_v1",
+  "target_positions": 10,
+  "single_trade_risk_fraction": 0.0025,
+  "portfolio_open_risk_grid": [0.02, 0.025, 0.03, 0.04],
+  "industry_to_portfolio_risk_ratio": 0.3,
+  "same_day_to_portfolio_risk_ratio": 0.375,
+  "max_symbol_weight": 0.08,
+  "max_gross_exposure": 0.8,
+  "max_stress_loss_fraction": 0.06,
+  "costs_bps": [25.0, 40.0, 60.0],
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "primary_validation_start_date": 20150101,
+  "primary_validation_end_date": 20191231,
+  "observed_supplement_start_date": 20200101,
+  "observed_supplement_end_date": 20260930,
+  "review_overlay": "suppress_rank_exits",
+  "stock_exit": "initial_stop_plus_3atr_trailing_plus_stagnation",
+  "parameter_search_performed": false,
+  "automatic_admission": false,
+  "notes": [
+    "The causal family score, ten-position target, per-trade risk, exits, gross cap, symbol cap and stress cap remain frozen.",
+    "Only portfolio, industry and same-day new-risk budgets change; the latter two preserve their original ratios to portfolio risk.",
+    "The 4% arm is a stress arm. With ten positions at 0.25% per-trade risk, portfolio risk above 2.5% is not expected to add capacity unless industry or same-day constraints bind.",
+    "All historical periods have already been observed; this experiment measures structural sensitivity and cannot admit a live strategy."
+  ]
+}
