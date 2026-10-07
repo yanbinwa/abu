@@ -1,0 +1,37 @@
+{
+  "experiment_id": "alpha158_causal_industry_confirmed_add_sleeve_risk_normalized_v1",
+  "research_status": "PREREGISTERED_RETROSPECTIVE_RISK_NORMALIZATION_NOT_ADMISSIBLE",
+  "score": "frozen_causal_family_rank_v1",
+  "total_initial_cash": 1000000.0,
+  "sleeve_cash_fraction": 0.025,
+  "sleeve_max_gross_exposure": 0.80,
+  "gate_variants": [
+    "IM_industry_leader_market_up"
+  ],
+  "industry_feature": "stock_excess_industry_20d",
+  "industry_minimum_excess": 0.0,
+  "position_add_policy": "protected_winner_v1",
+  "market_trend_gate": "benchmark_close_above_prior_ma200",
+  "costs_bps": [25.0, 40.0, 60.0],
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "primary_validation_start_date": 20150101,
+  "primary_validation_end_date": 20191231,
+  "observed_supplement_start_date": 20200101,
+  "observed_supplement_end_date": 20260930,
+  "admission_checks": {
+    "return_delta_positive_all_costs": true,
+    "return_delta_positive_both_eras_at_25bp": true,
+    "max_drawdown_degradation_limit_pp": 1.0,
+    "es95_degradation_limit_pp": 0.05,
+    "minimum_filled_adds": 30
+  },
+  "parameter_search_performed": false,
+  "automatic_admission": false,
+  "notes": [
+    "This is a fixed one-half risk normalization of the observed five-percent IM sleeve; no size grid is searched.",
+    "Signals, the zero industry-excess boundary, benchmark MA200 gate, costs and base exits remain unchanged.",
+    "The experiment is retrospective and cannot establish independent efficacy or admit a live or paper strategy.",
+    "A historical gate pass would permit only a newly frozen forward shadow candidate."
+  ]
+}
