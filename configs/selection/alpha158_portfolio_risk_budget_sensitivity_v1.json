@@ -1,0 +1,22 @@
+{
+  "experiment_id": "alpha158_portfolio_risk_budget_sensitivity_v1",
+  "research_status": "PREREGISTERED_STRUCTURAL_SENSITIVITY_NOT_ADMISSIBLE",
+  "score": "frozen_all_mean_rank",
+  "target_positions": 30,
+  "single_trade_risk_fraction": 0.0025,
+  "portfolio_open_risk_grid": [0.02, 0.025, 0.03],
+  "industry_to_portfolio_risk_ratio": 0.3,
+  "same_day_to_portfolio_risk_ratio": 0.375,
+  "costs_bps": [25.0, 40.0, 60.0],
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "review_overlay": "suppress_rank_exits",
+  "stock_exit": "initial_stop_plus_3atr_trailing_plus_stagnation",
+  "parameter_search_performed": false,
+  "automatic_admission": false,
+  "notes": [
+    "Only portfolio, industry and same-day new-risk budgets change.",
+    "The industry and same-day budgets preserve their original ratios to portfolio risk.",
+    "All historical periods have been observed; this experiment cannot validate or admit a strategy."
+  ]
+}

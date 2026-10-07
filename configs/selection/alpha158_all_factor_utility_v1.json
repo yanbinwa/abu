@@ -1,0 +1,68 @@
+{
+  "experiment_id": "alpha158_all_factor_utility_v1",
+  "research_status": "OBSERVED_HISTORY_SCREEN_ONLY_NOT_ADMITTED",
+  "source_strategy_version": "alpha158_price_only_no_rank_exit_v1",
+  "source_policy_version": "alpha158_lite_low_turnover_v3",
+  "review_overlay": "suppress_rank_exits",
+  "inventory": {
+    "total_registered_factors": 183,
+    "primary_strict_historical_factors": 161,
+    "secondary_backfilled_factors": 11,
+    "forward_only_factors": 11
+  },
+  "primary_families": [
+    "regression_trend",
+    "price_position",
+    "volume_structure",
+    "price_volume_persistence",
+    "kbar_shape",
+    "vwap_price",
+    "residual_overheat"
+  ],
+  "primary_sources": {
+    "regression_trend": "/Users/wjy/abu/backtests/alpha158_canonical_regression_trend_v2_20261006",
+    "price_position": "/Users/wjy/abu/backtests/alpha158_canonical_price_position_v2_20261006",
+    "volume_structure": "/Users/wjy/abu/backtests/alpha158_canonical_volume_structure_v2_20261006",
+    "price_volume_persistence": "/Users/wjy/abu/backtests/alpha158_canonical_price_volume_persistence_v2_20261006",
+    "kbar_shape": "/Users/wjy/abu/backtests/alpha158_canonical_kbar_shape_v3_20261006",
+    "vwap_price": "/Users/wjy/abu/backtests/alpha158_canonical_vwap_price_v4_20261006",
+    "residual_overheat": "/Users/wjy/abu/backtests/alpha158_residual_overheat_v2_20261006"
+  },
+  "arms": {
+    "baseline": "current 26-factor Ridge score",
+    "all_mean_rank": "equal-weight mean of seven within-date family candidate ranks",
+    "all_median_rank": "median of seven within-date family candidate ranks"
+  },
+  "normalization": "within_signal_date_percentile_rank_centered",
+  "family_weights": "equal_no_estimation",
+  "parameter_search_allowed": false,
+  "slippage_bps": [25.0, 40.0, 60.0],
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20261006,
+  "multiple_testing": "benjamini_hochberg",
+  "fdr_q_max": 0.10,
+  "gates": {
+    "rank_ic_delta_ci95_low_min": 0.0,
+    "top10_uplift_delta_ci95_low_min": 0.0,
+    "positive_year_count_min": 3,
+    "primary_cost_cagr_delta_pp_min": 0.5,
+    "max_absolute_exposure_delta_pp": 1.0,
+    "all_cost_return_delta_positive": true,
+    "all_cost_max_drawdown_not_worse": true,
+    "all_cost_expected_shortfall_not_worse": true,
+    "all_cost_liquidation_return_not_worse": true,
+    "primary_cost_calmar_delta_positive": true
+  },
+  "secondary_evidence": {
+    "baostock_valuation": "/Users/wjy/abu/backtests/alpha158_baostock_fundamental_overlay_2025_2026_20261006/report.json",
+    "dragon_tiger_list": "/Users/wjy/abu/backtests/alpha158_lhb_overlay_event_exit_only_v1_20261006/report.json"
+  },
+  "forward_only_groups": [
+    "financial_quality_growth_7",
+    "industry_context_4"
+  ],
+  "automatic_admission": false,
+  "observed_history": true,
+  "new_holdout": false
+}

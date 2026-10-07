@@ -100,7 +100,7 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                      position_add_execution_mode="executable",
                      initial_cash=1_000_000.0, review_overlay=None,
                      scale_out_config=None, entry_sizing_policy=None,
-                     exit_engine_factory=None):
+                     exit_engine_factory=None, context_risk_overlay=None):
     grouped = {int(date): group.sort_values(
         ["daily_rank", "symbol"], kind="mergesort")
         for date, group in scores.groupby("signal_asof", sort=True)}
@@ -173,6 +173,9 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                 if order is None and position_effect == "REDUCE" and \
                         scale_out is not None:
                     scale_out.record_cancel(symbol)
+                if order is None and position_effect == "REDUCE" and \
+                        context_risk_overlay is not None:
+                    context_risk_overlay.record_cancel(symbol)
                 exit_intents[sell.intent_id] = sell
                 exit_rows.append({"date": signal_date, "symbol": symbol,
                                   "reason": reason,
@@ -231,6 +234,10 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                         fill.status in ("rejected", "expired", "cancelled") and
                         scale_out is not None):
                     scale_out.record_cancel(fill.symbol)
+                if (fill.side == "sell" and fill.position_effect == "REDUCE" and
+                        fill.status in ("rejected", "expired", "cancelled") and
+                        context_risk_overlay is not None):
+                    context_risk_overlay.record_cancel(fill.symbol)
                 continue
             if fill.side == "sell":
                 reason = str(exit_intents[fill.intent_id].metadata.get(
@@ -238,11 +245,16 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                 if fill.position_effect == "REDUCE":
                     if scale_out is not None:
                         scale_out.record_fill(fill.symbol, reason, fill.quantity)
+                    if context_risk_overlay is not None:
+                        context_risk_overlay.record_fill(
+                            fill.symbol, reason, fill.quantity)
                 else:
                     exits.remove(fill.symbol)
                     entry_intents.pop(fill.symbol, None)
                     if scale_out is not None:
                         scale_out.remove(fill.symbol)
+                    if context_risk_overlay is not None:
+                        context_risk_overlay.remove(fill.symbol)
             else:
                 if fill.position_effect == "INCREASE":
                     if scale_out is not None:
@@ -252,6 +264,9 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                 exits.register_entry(intent, fill, day)
                 if scale_out is not None:
                     scale_out.register_entry(fill.symbol, fill.quantity)
+                if context_risk_overlay is not None:
+                    context_risk_overlay.register_entry(
+                        fill.symbol, fill.quantity)
         executor.process_close(day)
 
         pending_exits, pending_entries = [], []
@@ -276,8 +291,21 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
             if reason:
                 event_symbols.add(symbol)
                 pending_exits.append((symbol, reason, None, "CLOSE"))
-            elif scale_out is not None:
-                scale_out_candidates.append(symbol)
+            else:
+                if context_risk_overlay is not None:
+                    state = exits.states.get(symbol)
+                    if state is not None:
+                        decision = context_risk_overlay.evaluate(
+                            day, symbol, executor.positions[symbol].quantity,
+                            state)
+                        if decision is not None:
+                            event_symbols.add(symbol)
+                            pending_exits.append((
+                                symbol, decision["reason"],
+                                decision["quantity"],
+                                decision["position_effect"]))
+                if scale_out is not None:
+                    scale_out_candidates.append(symbol)
         if (day-first) % policy_config.review_interval_sessions == 0:
             daily = grouped.get(int(panel.dates[day]), pd.DataFrame())
             holding_sessions = {
@@ -295,6 +323,18 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
                       for row in daily.itertuples(index=False)}
             pending_entries = [lookup[symbol] for symbol in entry_symbols
                                if symbol in lookup]
+            if context_risk_overlay is not None:
+                block_reason = context_risk_overlay.entry_block_reason(day)
+                if block_reason is not None and pending_entries:
+                    context_risk_overlay.actions.append({
+                        "action": "BLOCK_ENTRIES",
+                        "date": int(panel.dates[day]),
+                        "reason": str(block_reason),
+                        "blocked_count": int(len(pending_entries)),
+                        "symbols": [str(row["symbol"])
+                                    for row in pending_entries],
+                    })
+                    pending_entries = []
         full_exit_symbols = {
             symbol for symbol, _, _, effect in pending_exits if effect == "CLOSE"}
         for symbol in scale_out_candidates:
@@ -387,6 +427,9 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "entry_sizing_policy_id": (
             entry_sizing_policy.config.policy_id
             if entry_sizing_policy is not None else "uniform_risk_v1"),
+        "context_risk_policy_id": (
+            context_risk_overlay.config.policy_id
+            if context_risk_overlay is not None else "none"),
         "conviction_selected_evaluations": (
             sum(item["selected"] for item in entry_sizing_policy.evaluations)
             if entry_sizing_policy is not None else 0),
@@ -415,6 +458,9 @@ def run_low_turnover(panel, scores, source_config, policy_config, risk_config,
         "entry_sizing_evaluations": (
             list(entry_sizing_policy.evaluations)
             if entry_sizing_policy is not None else []),
+        "context_risk_actions": (
+            list(context_risk_overlay.actions)
+            if context_risk_overlay is not None else []),
     }
     return result, audit
 

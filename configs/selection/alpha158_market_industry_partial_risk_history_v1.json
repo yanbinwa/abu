@@ -1,0 +1,51 @@
+{
+  "experiment_id": "alpha158_market_industry_partial_risk_history_v1",
+  "research_status": "PREREGISTERED_RETROSPECTIVE_NOT_ADMITTED",
+  "registered_candidate": "MP1_combined",
+  "selection_model": "frozen_all_mean_rank_equal_weight_seven_families",
+  "base_exit": "initial_stop_plus_3atr_trailing_plus_stagnation",
+  "market_entry_rule": "block_new_entries_for_the_next_session_when_a_market_absolute_event_is_confirmed_at_close",
+  "partial_exit_rule": "after_plus_1r_reduce_50_percent_once_at_next_open_on_market_or_industry_absolute_event",
+  "event_priority": "base_full_exit_then_market_then_industry",
+  "panel_start_date": 20110101,
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "primary_holdout": {
+    "start_date": 20150101,
+    "end_date": 20191231
+  },
+  "secondary_observed_history": {
+    "start_date": 20200101,
+    "end_date": 20260930
+  },
+  "costs_bps": [25.0, 40.0, 60.0],
+  "arms": {
+    "A0_frozen": "frozen all_mean_rank with original stock exits",
+    "E1_entry_gate": "market event one-session entry block only",
+    "P1_partial_exit": "one-shot 50 percent partial context reduction only",
+    "MP1_combined": "entry block plus one-shot 50 percent partial context reduction"
+  },
+  "parameter_search_allowed": false,
+  "event_threshold_search_allowed": false,
+  "partial_fraction_search_allowed": false,
+  "stock_confirmation_search_allowed": false,
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20152026,
+  "gates": {
+    "primary_return_delta_positive": true,
+    "primary_max_drawdown_not_worse": true,
+    "primary_expected_shortfall_not_worse": true,
+    "primary_cagr_delta_ci95_low_min": 0.0,
+    "full_return_delta_positive_all_costs": true,
+    "full_max_drawdown_not_worse_all_costs": true,
+    "positive_calendar_year_delta_min_count": 7,
+    "minimum_independent_reduction_signal_dates": 10
+  },
+  "automatic_admission": false,
+  "notes": [
+    "The strategy and gates are frozen before the 2015-2026 result is read.",
+    "Ablation arms attribute effects and cannot replace the registered combined candidate.",
+    "Financial factors are excluded from the primary result because revision history is incomplete."
+  ]
+}

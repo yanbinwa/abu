@@ -234,7 +234,19 @@ def generate_predictions(panel, source, research, output):
         manifests.append({
             "fold": int(fold.fold), "train_start": int(fold.train_start),
             "train_end": int(fold.train_end),
+            "validation_start": int(fold.validation_start),
+            "validation_end": int(fold.validation_end),
             "test_start": int(fold.test_start), "test_end": int(fold.test_end),
+            "label_horizon_sessions": int(fold.label_horizon_sessions),
+            "additional_embargo_sessions": int(
+                fold.additional_embargo_sessions),
+            "train_label_end": int(fold.train_label_end),
+            "validation_label_end": int(fold.validation_label_end),
+            "train_to_validation_clear_sessions": int(
+                fold.train_to_validation_clear_sessions),
+            "validation_to_test_clear_sessions": int(
+                fold.validation_to_test_clear_sessions),
+            "strict_label_non_overlap": True,
             "baseline": baseline.manifest, "candidate": candidate_manifest,
         })
         for position in fold.test_indices:

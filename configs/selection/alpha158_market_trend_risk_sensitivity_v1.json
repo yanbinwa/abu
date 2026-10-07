@@ -1,0 +1,21 @@
+{
+  "experiment_id": "alpha158_market_trend_risk_sensitivity_v1",
+  "research_status": "EXPLORATORY_OBSERVED_HISTORY_NOT_ADMISSIBLE",
+  "base_score": "frozen_all_mean_rank",
+  "target_positions": 30,
+  "benchmark": "csi_300",
+  "trend_window_sessions": 200,
+  "risk_on_fraction": 0.0025,
+  "risk_off_fraction": 0.00125,
+  "rule": "use risk_off_fraction for new entries when benchmark close is below its causal 200-session moving average",
+  "costs_bps": [25.0, 40.0, 60.0],
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "parameter_search_performed": false,
+  "automatic_admission": false,
+  "notes": [
+    "This is a single classical market-trend risk rule, not a threshold grid.",
+    "Existing holdings retain the original stock exits; the rule only sizes new risk.",
+    "All history has been observed, so any favorable result requires forward shadow validation."
+  ]
+}

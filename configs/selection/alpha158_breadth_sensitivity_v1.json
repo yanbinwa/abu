@@ -1,0 +1,18 @@
+{
+  "experiment_id": "alpha158_breadth_sensitivity_v1",
+  "research_status": "EXPLORATORY_OBSERVED_HISTORY_NOT_ADMISSIBLE",
+  "score": "frozen_all_mean_rank",
+  "target_position_grid": [10, 20, 30, 50],
+  "portfolio_open_risk_fraction": 0.02,
+  "single_trade_risk_fraction": 0.0025,
+  "slippage_bps": 25.0,
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "review_overlay": "suppress_rank_exits",
+  "selection_or_parameter_admission_allowed": false,
+  "notes": [
+    "The grid is a structural sensitivity analysis after historical results were observed.",
+    "All variants retain the same portfolio risk cap, per-trade risk, score and stock exit rules.",
+    "No best variant may be promoted from this experiment."
+  ]
+}

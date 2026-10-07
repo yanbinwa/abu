@@ -1,0 +1,57 @@
+{
+  "experiment_id": "alpha158_history_2015_validation_v1",
+  "research_status": "PREREGISTERED_RETROSPECTIVE_HOLDOUT_NOT_ADMITTED",
+  "registered_candidate": "all_mean_rank",
+  "candidate_definition": "equal-weight mean of seven within-date family candidate ranks",
+  "candidate_source_experiment": "alpha158_all_factor_utility_v1",
+  "source_strategy_version": "alpha158_price_only_no_rank_exit_v1",
+  "source_policy_version": "alpha158_lite_low_turnover_v3",
+  "review_overlay": "suppress_rank_exits",
+  "universe": "strict_pit_shenzhen_a_shares_with_delisted_securities",
+  "panel_start_date": 20110101,
+  "walk_forward_signal_start_date": 20130101,
+  "evaluation_start_date": 20150101,
+  "evaluation_end_date": 20260930,
+  "primary_new_holdout": {
+    "start_date": 20150101,
+    "end_date": 20191231,
+    "role": "PRIMARY_UNOBSERVED_HISTORICAL_HOLDOUT"
+  },
+  "previously_observed_supplement": {
+    "start_date": 20200101,
+    "end_date": 20260930,
+    "role": "SECONDARY_OBSERVED_HISTORY"
+  },
+  "primary_families": [
+    "regression_trend",
+    "price_position",
+    "volume_structure",
+    "price_volume_persistence",
+    "kbar_shape",
+    "vwap_price",
+    "residual_overheat"
+  ],
+  "family_weights": "equal_no_estimation",
+  "parameter_search_allowed": false,
+  "family_or_feature_selection_allowed": false,
+  "slippage_bps": [25.0, 40.0, 60.0],
+  "bootstrap_block_sessions": 20,
+  "bootstrap_replicates": 5000,
+  "bootstrap_seed": 20150101,
+  "gates": {
+    "primary_holdout_cagr_delta_ci95_low_min": 0.0,
+    "primary_holdout_return_delta_positive": true,
+    "primary_holdout_max_drawdown_not_worse": true,
+    "primary_holdout_expected_shortfall_not_worse": true,
+    "primary_holdout_liquidation_return_not_worse": true,
+    "all_cost_return_delta_positive": true,
+    "full_period_max_drawdown_not_worse": true,
+    "positive_calendar_year_delta_min_count": 7
+  },
+  "automatic_admission": false,
+  "notes": [
+    "The all_mean_rank candidate was frozen before collecting and testing 2015-2019 execution data.",
+    "No family weights, feature subsets, thresholds or exits may be changed after holdout results are observed.",
+    "The 2015-2019 segment is the primary decision sample; 2020 onward has already been observed in earlier research."
+  ]
+}

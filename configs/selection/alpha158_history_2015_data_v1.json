@@ -1,0 +1,27 @@
+{
+  "dataset_id": "alpha158_history_2015_data_v1",
+  "source": "baostock_query_history_k_data_plus",
+  "source_version": "baostock_00.9.40",
+  "source_adjustflag_raw": "3",
+  "source_adjustflag_signal_fallback": "2",
+  "panel_start_date": "2011-01-01",
+  "prefix_end_date": "2019-12-31",
+  "evaluation_start_date": "2015-01-01",
+  "latest_complete_session": "2026-09-30",
+  "universe": "shenzhen_a_shares_active_or_delisted_on_or_after_2015_01_01",
+  "allowed_prefixes": ["000", "001", "002", "003", "300", "301"],
+  "existing_research_dir": "/Users/wjy/abu/data/selection_research",
+  "existing_signal_dir": "/Users/wjy/abu/data/csv",
+  "output_dir": "/Users/wjy/abu/data/selection_research_2015_v1",
+  "raw_fields": [
+    "date", "code", "open", "high", "low", "close", "preclose",
+    "volume", "amount", "turn", "pctChg", "tradestatus", "isST"
+  ],
+  "signal_fallback_fields": [
+    "date", "code", "open", "high", "low", "close", "preclose",
+    "volume", "pctChg", "tradestatus"
+  ],
+  "worker_count": 4,
+  "overwrite_existing": false,
+  "immutable_completed_files": true
+}
