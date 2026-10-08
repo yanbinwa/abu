@@ -1,7 +1,7 @@
 {
   "schema_version": "minute_shadow_job_v1",
   "execution_mode": "DATA_ONLY",
-  "first_eligible_session": 20261009,
+  "first_eligible_session": 20261008,
   "minute_store_root": "/Users/wjy/abu/service/paper_v1/minute_store",
   "trading_calendar_path": "/Users/wjy/abu/paper/alpha158_event_exit_only_daily/trading_calendar.json",
   "collection_windows": [

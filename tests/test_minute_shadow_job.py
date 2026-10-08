@@ -10,6 +10,9 @@ from tests.test_intraday_shadow import FakeAdapter
 from tests.test_minute_bar_store import event
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 class MinuteShadowSnapshotJobTest(unittest.TestCase):
 
     def setUp(self):
@@ -100,6 +103,17 @@ class MinuteShadowSnapshotJobTest(unittest.TestCase):
             MinuteShadowSnapshotJob(
                 self.store, self.root / "content", self.config,
                 adapter=FakeAdapter([event()]))
+
+    def test_operational_collection_and_admission_start_together(self):
+        collection = json.loads((
+            ROOT / "configs/service/minute_shadow_v1.json").read_text(
+                encoding="utf-8"))
+        admission = json.loads((
+            ROOT / "configs/service/minute_shadow_admission_v1.json").read_text(
+                encoding="utf-8"))
+        self.assertEqual(20261008, collection["first_eligible_session"])
+        self.assertEqual(collection["first_eligible_session"],
+                         admission["first_eligible_session"])
 
 
 if __name__ == "__main__":
