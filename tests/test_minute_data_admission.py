@@ -1,13 +1,25 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from abupy.ServiceBu import (
     OperationalStore, SnapshotCatalog, evaluate_minute_data_admission,
 )
+from scripts.audit_minute_shadow_admission import trading_sessions
 
 
 class MinuteDataAdmissionTest(unittest.TestCase):
+
+    def test_audit_sessions_come_from_frozen_trading_calendar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            calendar = Path(directory) / "calendar.json"
+            calendar.write_text(json.dumps({
+                "dates": [20261002, 20261008, 20261009, 20261008],
+            }), encoding="utf-8")
+            self.assertEqual(
+                [20261002, 20261008],
+                trading_sessions(calendar, 20261008))
 
     @staticmethod
     def publish(catalog, session):
