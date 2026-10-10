@@ -4,7 +4,8 @@ from unittest import mock
 import pandas as pd
 
 from abupy.MarketBu.ABuRealtimeMarket import (
-    AKShareRealtimeMarketData, MinuteBarEvent, RealtimeMarketDataError,
+    AKShareRealtimeMarketData, FailoverMinuteMarketData, MarketDataHealth,
+    MinuteBarEvent, RealtimeMarketDataError, TencentMinuteMarketData,
     normalize_cn_symbol,
 )
 
@@ -215,6 +216,99 @@ class AKShareRealtimeMarketDataTest(unittest.TestCase):
 
         self.assertEqual(2, polls)
         self.assertEqual(2, len(received))
+
+
+class _Response(object):
+    status_code = 200
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+    def raise_for_status(self):
+        return None
+
+
+class TencentMinuteMarketDataTest(unittest.TestCase):
+
+    def test_normalizes_lots_and_archives_before_filtering(self):
+        session = mock.Mock()
+        session.get.return_value = _Response({
+            "code": 0,
+            "data": {"sh600000": {"m1": [
+                ["202610091000", "10.00", "10.10", "10.20", "9.90", "123"],
+                ["202610091002", "10.10", "10.15", "10.20", "10.05", "45"],
+            ]}},
+        })
+        archived = []
+        adapter = TencentMinuteMarketData(
+            session=session, retries=1, now=lambda: NOW,
+            raw_archive=lambda **payload: archived.append(payload))
+
+        frame = adapter.minute_bars(
+            "600000", start="2026-10-09 10:00:00",
+            end="2026-10-09 10:02:30")
+
+        self.assertEqual([12_300.0, 4_500.0], frame.volume_shares.tolist())
+        self.assertEqual("tencent_mkline_minute", frame.iloc[0].source)
+        self.assertTrue(pd.isna(frame.iloc[0].amount_raw))
+        self.assertIn("AMOUNT_MISSING", frame.iloc[0].quality_codes)
+        self.assertEqual(1, len(archived))
+        self.assertEqual("tencent_mkline_minute", archived[0]["provider"])
+        self.assertTrue(adapter.health("sh600000").data_fresh)
+        session.get.assert_called_once()
+
+    def test_failover_uses_whole_fallback_frame_and_opens_on_429(self):
+        failure = RealtimeMarketDataError("limited")
+        failure.reason_code = "HTTP_429"
+        primary = mock.Mock()
+        primary.minute_bars.side_effect = failure
+        primary.health.return_value = None
+        fallback = mock.Mock()
+        fallback.raw_archive = None
+        frame = pd.DataFrame({"source": ["akshare_sina_minute"]})
+        fallback.minute_bars.return_value = frame
+        fallback.health.return_value = MarketDataHealth(
+            source="sina", connected=True,
+            last_provider="akshare_sina_minute",
+            last_success_at=NOW.isoformat(), last_error=None,
+            last_warning=None, consecutive_failures=0,
+            last_latency_ms=1.0, last_record_count=1,
+            transport_ok=True, data_present=True, data_fresh=True,
+            fields_valid=True)
+        router = FailoverMinuteMarketData(
+            primary, fallback, failure_threshold=3,
+            circuit_breaker_seconds=900, max_fallback_per_cycle=2,
+            monotonic=lambda: 100.0)
+        router.begin_cycle()
+
+        first = router.minute_bars("sh600000")
+        second = router.minute_bars("sh600000")
+
+        self.assertIs(first, frame)
+        self.assertIs(second, frame)
+        self.assertEqual(1, primary.minute_bars.call_count)
+        self.assertEqual(2, fallback.minute_bars.call_count)
+        self.assertIn("primary_failed", router.health("sh600000").last_warning)
+
+    def test_failover_quota_fails_closed(self):
+        failure = RealtimeMarketDataError("down")
+        failure.reason_code = "PROVIDER_ERROR"
+        primary = mock.Mock()
+        primary.minute_bars.side_effect = failure
+        primary.health.return_value = None
+        fallback = mock.Mock()
+        fallback.raw_archive = None
+        fallback.minute_bars.side_effect = failure
+        router = FailoverMinuteMarketData(
+            primary, fallback, failure_threshold=3,
+            max_fallback_per_cycle=0)
+        router.begin_cycle()
+        with self.assertRaisesRegex(RealtimeMarketDataError, "not admitted"):
+            router.minute_bars("sh600000")
+        fallback.minute_bars.assert_not_called()
 
 
 if __name__ == "__main__":

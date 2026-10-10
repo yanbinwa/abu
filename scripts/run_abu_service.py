@@ -14,7 +14,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from abupy.ServiceBu import (  # noqa: E402
-    DailyShadowSnapshotJob, MinuteShadowSnapshotJob, ServiceRuntime,
+    DailyShadowSnapshotJob, IntradaySentimentSnapshotJob,
+    MinuteShadowSnapshotJob, ProviderRateLimiter, ServiceRuntime,
 )
 
 
@@ -44,15 +45,36 @@ def build_handlers(service, args):
             service.config["daily_benchmark_pattern"])()
     if args.enable_minute_shadow:
         minute_job = []
+        minute_config = json.loads(Path(
+            service.config["minute_shadow_config_path"]).read_text(
+                encoding="utf-8"))
+        sentiment_config = json.loads(Path(
+            service.config["intraday_sentiment_config_path"]).read_text(
+                encoding="utf-8"))
+        shared_tencent_limiter = ProviderRateLimiter(min(
+            float(minute_config["provider_requests_per_second"]),
+            float(sentiment_config["tencent_requests_per_second"]))).wait
 
         def run_minute_shadow():
             if not minute_job:
                 minute_job.append(MinuteShadowSnapshotJob(
                     service.store, service.config["snapshot_root"],
-                    service.config["minute_shadow_config_path"]))
+                    service.config["minute_shadow_config_path"],
+                    rate_limiter=shared_tencent_limiter))
             return minute_job[0]()
 
         handlers["minute.collect"] = run_minute_shadow
+        sentiment_job = []
+
+        def run_intraday_sentiment():
+            if not sentiment_job:
+                sentiment_job.append(IntradaySentimentSnapshotJob(
+                    service.store, service.config["snapshot_root"],
+                    service.config["intraday_sentiment_config_path"],
+                    primary_rate_limiter=shared_tencent_limiter))
+            return sentiment_job[0]()
+
+        handlers["market.sentiment_snapshot"] = run_intraday_sentiment
     if args.enable_paper_shadow:
         if not service.config.get("account_writes_enabled"):
             raise ValueError(

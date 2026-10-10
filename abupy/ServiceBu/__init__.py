@@ -29,6 +29,9 @@ from .ABuMinuteDataAdmission import (
     evaluate_minute_data_admission, load_minute_admission_config,
 )
 from .ABuMinuteShadowJob import MinuteShadowSnapshotJob
+from .ABuIntradaySentimentJob import (
+    IntradaySentimentSnapshotJob, QuoteSnapshotError, WholeMarketQuoteClient,
+)
 from .ABuOperationalStore import OperationalStore
 from .ABuPaperLedgerStore import (
     InvalidLedgerTransition, LedgerIdentityCollision,
@@ -79,6 +82,9 @@ __all__ = [
     "MinuteSnapshotBuilder",
     "MinuteSnapshotConsumer",
     "MinuteShadowSnapshotJob",
+    "IntradaySentimentSnapshotJob",
+    "QuoteSnapshotError",
+    "WholeMarketQuoteClient",
     "InvalidLedgerTransition",
     "InvalidAccountSessionTransition",
     "LedgerIdentityCollision",

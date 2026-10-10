@@ -32,6 +32,8 @@ class ServiceRuntimeFreezeTest(unittest.TestCase):
                 encoding="utf-8"))
             self.assertTrue(service["daily_data_policy_path"].startswith(str(release)))
             self.assertTrue(service["minute_shadow_config_path"].startswith(str(release)))
+            self.assertTrue(service["intraday_sentiment_config_path"].startswith(
+                str(release)))
             repeated, repeated_manifest, created_again = freeze_runtime(
                 Path(directory), commit="test-commit", source_root=ROOT)
             self.assertFalse(created_again)

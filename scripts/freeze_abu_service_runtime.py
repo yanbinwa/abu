@@ -96,6 +96,8 @@ def freeze_runtime(output_root, commit=None, source_root=ROOT):
             release / "configs" / "service" / "daily_sources_v1.json")
         service["minute_shadow_config_path"] = str(
             release / "configs" / "service" / "minute_shadow_v1.json")
+        service["intraday_sentiment_config_path"] = str(
+            release / "configs" / "service" / "intraday_sentiment_v1.json")
         service_path.write_text(json.dumps(
             service, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8")

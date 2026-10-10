@@ -4,8 +4,9 @@ from .ABuDataBase import BaseMarket, FuturesBaseMarket, StockBaseMarket, TCBaseM
 from .ABuDataParser import AbuDataParseWrap
 from .ABuDataFeedAkShare import AKShareCNApi, akshare_cn_stock_info, akshare_cn_symbols, use_akshare
 from .ABuRealtimeMarket import (
-    AKShareRealtimeMarketData, MarketDataHealth, MinuteBarEvent,
-    RealtimeMarketDataAdapter, RealtimeMarketDataError, normalize_cn_symbol,
+    AKShareRealtimeMarketData, FailoverMinuteMarketData, MarketDataHealth,
+    MinuteBarEvent, RealtimeMarketDataAdapter, RealtimeMarketDataError,
+    SinaMinuteMarketData, TencentMinuteMarketData, normalize_cn_symbol,
 )
 from .ABuMinuteBarStore import MinuteBarStore, minute_events_from_frame
 from . import ABuSymbolPd
@@ -33,6 +34,9 @@ __all__ = [
     'akshare_cn_symbols',
     'use_akshare',
     'AKShareRealtimeMarketData',
+    'TencentMinuteMarketData',
+    'SinaMinuteMarketData',
+    'FailoverMinuteMarketData',
     'MarketDataHealth',
     'MinuteBarEvent',
     'RealtimeMarketDataAdapter',

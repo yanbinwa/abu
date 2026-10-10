@@ -4,6 +4,7 @@ import json
 import glob
 import re
 import time
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -108,15 +109,17 @@ class ProviderRateLimiter(object):
         self.clock = clock or time.monotonic
         self.sleeper = sleeper or time.sleep
         self.last_request_at = None
+        self._lock = threading.Lock()
 
     def wait(self):
-        now = float(self.clock())
-        if self.last_request_at is not None:
-            remaining = self.minimum_interval - (now - self.last_request_at)
-            if remaining > 0:
-                self.sleeper(remaining)
-                now = float(self.clock())
-        self.last_request_at = now
+        with self._lock:
+            now = float(self.clock())
+            if self.last_request_at is not None:
+                remaining = self.minimum_interval - (now - self.last_request_at)
+                if remaining > 0:
+                    self.sleeper(remaining)
+                    now = float(self.clock())
+            self.last_request_at = now
 
 
 def incremental_sessions(calendar_sessions, last_committed_session, target_session):

@@ -16,8 +16,16 @@
   ],
   "batch_size": 20,
   "request_timeout_seconds": 15.0,
-  "provider_retries": 3,
-  "provider_retry_wait_seconds": 1.0,
+  "provider_retries": 2,
+  "provider_retry_wait_seconds": 0.5,
   "provider_requests_per_second": 2.0,
-  "provider_policy_version": "akshare-eastmoney-sina-v1"
+  "fallback_requests_per_second": 0.5,
+  "provider_max_rows": 120,
+  "stale_after_seconds": 125.0,
+  "maximum_watchlist_symbols": 30,
+  "hard_maximum_watchlist_symbols": 50,
+  "maximum_fallback_symbols_per_cycle": 5,
+  "circuit_breaker_failures": 3,
+  "circuit_breaker_seconds": 900.0,
+  "provider_policy_version": "tencent-mkline-sina-whole-bar-v1"
 }

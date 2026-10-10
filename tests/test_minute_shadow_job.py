@@ -104,6 +104,36 @@ class MinuteShadowSnapshotJobTest(unittest.TestCase):
                 self.store, self.root / "content", self.config,
                 adapter=FakeAdapter([event()]))
 
+    def test_watchlist_cap_keeps_positions_and_pending_before_candidates(self):
+        payload = json.loads(self.config.read_text(encoding="utf-8"))
+        payload["maximum_watchlist_symbols"] = 5
+        payload["hard_maximum_watchlist_symbols"] = 5
+        payload["benchmark_symbols"] = ["sh600004"]
+        payload["sentinel_symbols"] = ["sh600003"]
+        self.config.write_text(json.dumps(payload), encoding="utf-8")
+        self.legacy.write_text(json.dumps({
+            "active": {
+                "positions": {"sh600001": {"quantity": 100}},
+                "orders": [{"symbol": "sh600002", "status": "WAITING"}],
+                "entry_intents": {
+                    str(index): {"symbol": "sz{:06d}".format(index + 10)}
+                    for index in range(20)},
+            },
+        }), encoding="utf-8")
+        job = MinuteShadowSnapshotJob(
+            self.store, self.root / "content", self.config,
+            adapter=FakeAdapter([event()]))
+
+        inputs = job._watchlist_inputs()
+        admitted = set().union(*map(set, inputs.values()))
+
+        self.assertEqual(5, len(admitted))
+        self.assertIn("sh600001", admitted)
+        self.assertIn("sh600002", admitted)
+        self.assertIn("sh600003", admitted)
+        self.assertIn("sh600004", admitted)
+        self.assertEqual(1, len(inputs["candidates"]))
+
     def test_operational_collection_and_admission_start_together(self):
         collection = json.loads((
             ROOT / "configs/service/minute_shadow_v1.json").read_text(

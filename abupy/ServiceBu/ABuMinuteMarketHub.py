@@ -125,6 +125,8 @@ class MinuteCollector(object):
 
     def collect(self, symbols, trading_session, collection_end):
         symbols = tuple(sorted(set(symbols)))
+        if callable(getattr(self.adapter, "begin_cycle", None)):
+            self.adapter.begin_cycle()
         date = str(int(trading_session))
         day = "{}-{}-{}".format(date[:4], date[4:6], date[6:])
         results = {}
@@ -155,16 +157,27 @@ class MinuteCollector(object):
                     source = next(iter(sources))
                     previous = self.provider_by_symbol.get(symbol)
                     quality_codes = []
+                    health = (self.adapter.health(symbol)
+                              if callable(getattr(self.adapter, "health", None))
+                              else None)
+                    health = health.to_dict() if health is not None else {}
+                    stale = health.get("data_fresh") is False
+                    quality_codes.extend(health.get("reason_codes", ()))
+                    if stale:
+                        quality_codes.append("STALE_DATA")
+                    if health.get("last_warning"):
+                        quality_codes.append("PROVIDER_FALLBACK")
                     if previous is not None and previous != source:
                         quality_codes.append("PROVIDER_SWITCHED")
                     appended = self.store.append(events)
                     self.provider_by_symbol[symbol] = source
                     results[symbol] = {
-                        "terminal_status": "AVAILABLE", "source": source,
+                        "terminal_status": "STALE" if stale else "AVAILABLE",
+                        "source": source,
                         "partition_manifest_sha256": appended[-1]["manifest_sha256"],
                         "appended": sum(item["appended"] for item in appended),
                         "elapsed_seconds": elapsed,
-                        "quality_codes": quality_codes,
+                        "quality_codes": sorted(set(quality_codes)),
                     }
                 except RealtimeMarketDataError as error:
                     results[symbol] = {

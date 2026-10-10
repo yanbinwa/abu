@@ -236,6 +236,30 @@ class MinuteMarketHubTest(unittest.TestCase):
         self.assertIn("PROVIDER_SWITCHED",
                       switched["sh600000"]["quality_codes"])
 
+    def test_stale_provider_data_is_archived_but_not_counted_as_available(self):
+        class StaleAdapter(FakeAdapter):
+            def health(self, symbol=None):
+                class Health:
+                    def to_dict(self):
+                        return {"data_fresh": False,
+                                "reason_codes": ("STALE_DATA",),
+                                "last_warning": "eastmoney_failed: ValueError"}
+                return Health()
+
+        watchlist = self.watchlist(positions=("sh600000",), benchmarks=())
+        collector = MinuteCollector(StaleAdapter([event()]), self.minute_store)
+        results = collector.collect(
+            ("sh600000",), 20261009, "2026-10-09 09:35:05")
+        self.assertEqual("STALE", results["sh600000"]["terminal_status"])
+        published = self.builder.publish(
+            watchlist, results, decision_cutoff="2026-10-09T09:35:05+08:00",
+            collection_started_at="2026-10-09T09:35:00+08:00",
+            collection_completed_at="2026-10-09T09:35:05+08:00")
+        self.assertEqual(["sh600000"], published["manifest"]["stale_symbols"])
+        self.assertEqual(0.0, published["metrics"]["coverage"])
+        self.assertEqual(1, published["metrics"]["selected_bar_count"])
+        self.assertIn("PROVIDER_FALLBACK", published["manifest"]["quality_codes"])
+
 
 if __name__ == "__main__":
     unittest.main()

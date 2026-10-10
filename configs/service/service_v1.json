@@ -11,6 +11,7 @@
   "daily_source_config_path": "/Users/wjy/Documents/code/abu/configs/service/daily_sources_v1.json",
   "daily_benchmark_pattern": "/Users/wjy/abu/data/csv/sh000300_*",
   "minute_shadow_config_path": "/Users/wjy/Documents/code/abu/configs/service/minute_shadow_v1.json",
+  "intraday_sentiment_config_path": "/Users/wjy/Documents/code/abu/configs/service/intraday_sentiment_v1.json",
   "notification_artifact_root": "/Users/wjy/abu/service/paper_v1/notifications",
   "dashboard_root": "/Users/wjy/abu/service/paper_v1/dashboard",
   "busy_timeout_ms": 5000,

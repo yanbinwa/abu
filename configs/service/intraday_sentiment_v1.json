@@ -1,0 +1,22 @@
+{
+  "schema_version": "intraday_sentiment_job_v1",
+  "execution_mode": "DATA_ONLY",
+  "first_eligible_session": 20261012,
+  "security_master_path": "/Users/wjy/abu/data/selection_research/security_master.csv",
+  "industry_history_path": "/Users/wjy/abu/data/selection_research/industry_changes.csv",
+  "industry_classification_standard": "申银万国行业分类标准",
+  "trading_calendar_path": "/Users/wjy/abu/paper/alpha158_event_exit_only_daily/trading_calendar.json",
+  "collection_windows": [
+    {"start": "09:31:05", "end": "11:30:30"},
+    {"start": "13:01:05", "end": "15:01:30"}
+  ],
+  "request_timeout_seconds": 10.0,
+  "tencent_requests_per_second": 2.0,
+  "sina_requests_per_second": 0.5,
+  "minimum_coverage_ratio": 0.90,
+  "minimum_fresh_ratio": 0.85,
+  "minimum_industry_coverage_ratio": 0.90,
+  "stale_after_seconds": 180.0,
+  "snapshot_interval_seconds": 300,
+  "provider_policy_version": "tencent-primary-sina-crosscheck-v1"
+}

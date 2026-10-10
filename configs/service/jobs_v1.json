@@ -25,6 +25,13 @@
       "schedule": {"interval_seconds": 60, "trading_sessions_only": true}
     },
     {
+      "job_id": "market.sentiment_snapshot",
+      "job_version": "v1",
+      "category": "INTRADAY_MARKET_CONTEXT",
+      "critical": false,
+      "schedule": {"interval_seconds": 300, "trading_sessions_only": true}
+    },
+    {
       "job_id": "minute.execute_paper_shadow",
       "job_version": "v1",
       "category": "ACCOUNT_MINUTE_SHADOW",
